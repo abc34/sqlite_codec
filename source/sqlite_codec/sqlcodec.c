@@ -36,10 +36,10 @@
 **   PRAGMA rekey = ... is used after PRAGMA key to change encryption key with a new one.
 ** 
 ** Attaching a file to 'main' database:
-**   ATTACH 'new_file.db' AS newdb;              - attaching unencrypted database file (zKey=NULL,nKey=0)
-**   ATTACH 'new_file.db' AS newdb KEY '';       - attaching unencrypted database file (zKey=NULL,nKey=0)
-**   ATTACH 'new_file.db' AS newdb KEY 'pass';   - attaching encrypted database file, used passphrase
-**   ATTACH 'new_file.db' AS newdb KEY 'abc...z='; - attaching encrypted database file, used base64 prekey
+**   ATTACH 'new_file.db' AS 'newdb';              - attaching unencrypted database file (zKey=NULL,nKey=0)
+**   ATTACH 'new_file.db' AS 'newdb' KEY '';       - attaching unencrypted database file (zKey=NULL,nKey=0)
+**   ATTACH 'new_file.db' AS 'newdb' KEY 'pass';   - attaching encrypted database file, used passphrase
+**   ATTACH 'new_file.db' AS 'newdb' KEY 'abc...z='; - attaching encrypted database file, used base64 prekey
 **---------------
 */
 
@@ -136,7 +136,9 @@ void sqlite3_activate_see(const char* in) {/*no-op*/ }
 
 /*
 ** sqlite3_key_v2
-** PARGMA key='password';
+** PARGMA key='password'; //passphrase
+** PARGMA key='ABCD...z=';//base64
+** PRAGMA key='';
 */
 SQLITE_API int SQLITE_STDCALL sqlite3_key_v2(sqlite3 *db, const char *zDbName, const void *pKey, int nKey)
 {
