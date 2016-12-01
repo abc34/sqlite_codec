@@ -1,7 +1,7 @@
 /*
 **  29.10.2015
 ** 
-** 1. For encryption is used mbedtls library
+** 1. For encryption is used mbedtls library.
 ** 2. Codec AES-256-GCM with a key length of 256/8 = 32 bytes and a length equal to iv, AES_BLOCK_SIZE = 16 bytes.
 ** 3. The key is formed PBKDF2-SHA512 with the number of iterations
 **        from a passphrase    = (CODEC_PBKDF2_ITER + CODEC_PBKDF2_ITER_FAST)
