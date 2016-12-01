@@ -171,7 +171,7 @@ SQLITE_API int SQLITE_STDCALL sqlite3_rekey(sqlite3 *db, void *zKey, int nKey) {
 ** If the KEY expression z is not specified, the first is called sqlite3CodecGetKey() specifies the zKey and nKey.
 ** If the KEY expression '' (z not set) then zKey=NULL, nKey=0 (sqlite3CodecGetKey is not called).
 ** NOTE:
-** for empty string '' sqlite return zKey address != NULL and nKey==0
+** for empty key string '' sqlite return zKey != NULL and nKey==0, in this case, you should check the nKey.
 */
 int sqlite3CodecAttach(sqlite3* db, int nDb, const void* zKey, int nKey)
 {
@@ -186,10 +186,10 @@ int sqlite3CodecAttach(sqlite3* db, int nDb, const void* zKey, int nKey)
 	if (nKey <= 0) { zKey = NULL; nKey = 0; }//CAST (zKey,nKey)
 	if (zKey == NULL)
 	{
-		//setting pagesize и nReserve=0 and set codec = NULL if available
+		//without encryption resetting nReserve=0 and codec = NULL if available
 		if (sqlite3PagerGetCodec(sqlite3BtreePager(pDb->pBt)) != NULL)
 		{
-			pDb->pBt->pBt->btsFlags &= ~BTS_PAGESIZE_FIXED;//before sqlite3BtreeSetPageSize unset the BTS_PAGESIZE_FIXED flag
+			sqlite3BtreePager(pDb->pBt)->btsFlags &= ~BTS_PAGESIZE_FIXED;//before sqlite3BtreeSetPageSize unset the BTS_PAGESIZE_FIXED flag
 			sqlite3BtreeSetPageSize(pDb->pBt, sqlite3BtreeGetPageSize(pDb->pBt), 0, 0);
 			sqlite3PagerSetCodec(sqlite3BtreePager(pDb->pBt), NULL, NULL, NULL, NULL);
 			rc = SQLITE_OK;
@@ -231,7 +231,7 @@ int sqlite3CodecAttach(sqlite3* db, int nDb, const void* zKey, int nKey)
 		sqlite3PagerSetCodec(sqlite3BtreePager(pDb->pBt), sqlite3Codec, sqlite3CodecSizeChng, sqlite3FreeCodecArg, (void*)ctx);
 		//--TODO: in the future you can make a change pagesize (nReserve will remain unchanged)
 		//setting pagesize и nReserve в db
-		pDb->pBt->pBt->btsFlags &= ~BTS_PAGESIZE_FIXED;//before sqlite3BtreeSetPageSize unset the BTS_PAGESIZE_FIXED flag
+		sqlite3BtreePager(pDb->pBt)->btsFlags &= ~BTS_PAGESIZE_FIXED;//before sqlite3BtreeSetPageSize unset the BTS_PAGESIZE_FIXED flag
 		sqlite3BtreeSetPageSize(pDb->pBt, ctx->page_size, CODEC_RESERVED_SIZE, 0);
 		/* force secure delete. This has the benefit of wiping internal data when deleted
 		and also ensures that all pages are written to disk (i.e. not skipped by
@@ -263,7 +263,7 @@ void sqlite3CodecGetKey(sqlite3* db, int nDb, void** zKey, int* nKey)
 ** An implementation of the codec in the structure of Pager from pager.c
 ** sqlite3Codec can be called in multiple modes.
 ** encrypt mode - expected to return a pointer to the encrypted data without altering pData.
-** decrypt mode - expected to return a pointer to pData, with the data decrypted in the input buffer
+** decrypt mode - expected to return a pointer to pData, with the data decrypted in the input buffer.
 */
 void* sqlite3Codec(void *pCodec, void *data, Pgno pgno, int mode)
 {
@@ -360,7 +360,7 @@ void sqlcodec_free(void *ptr, int sz)
 	}
 }
 /*
-** Random nembers generator; return 0 (OK) || 1 (ERROR)
+** Random numbers generator; return 0 (OK) || 1 (ERROR)
 */
 int RNG_GenerateBlock(byte* dst, int len)
 {
@@ -447,7 +447,7 @@ int sqlcodec_set_buffer(sqlCodecCTX* ctx, int size)
 **    key=PBKDF2(prekey, salt, CODEC_PBKDF2_ITER_FAST)
 **
 ** NOTES:
-** hex key not work: when in ATTACH file AS alias KEY X'abcd', then sqlite convert hex to blob and pKey not hex string
+** hex key not work: when ATTACH file AS alias KEY X'abcd', then sqlite convert hex to blob and pKey not hex string
 ** the last character in the base64prekey is '=' because the key length is not divisible by 3
 */
 int sqlcodec_set_password(sqlCodecCTX* ctx, byte* pKey, int nKey)
@@ -816,11 +816,11 @@ int sqlcodec_replayAllPages(Db* pDb)
 }
 
 /*
-** Reencrypt database with number in nDb and new zKey.
+** Reencrypt database number Db with or without key.
 ** When all OK, then return SQLITE_OK.
 ** When error, then return error code.
-** If error code = SQLITE_CORRUPT, then on errors database rollback failed
-**                                 and do not restored !!!
+** If error code = SQLITE_CORRUPT and database rollback failed,
+**                                then main database will not restored !!!
 */
 int sqlcodec_rekey(sqlite3 *db, int nDb, char* zKey, int nKey)
 {
@@ -832,7 +832,7 @@ int sqlcodec_rekey(sqlite3 *db, int nDb, char* zKey, int nKey)
 	if (nKey <= 0) { zKey = NULL; nKey = 0; };
 	//if the database is not encrypted, and new key is not set, do nothing
 	if (ctx == NULL && zKey == NULL)return SQLITE_OK;
-	//UNDONE: PAGE-BY-PAGE CONVERSION IS NOT BE ABLE TO DO IT because nReserve>0
+	//NOTE: PAGE-BY-PAGE CONVERSION IS NOT BE ABLE TO DO IT because nReserve>0.
 
 	//if (ctx == NULL || zKey == NULL)
 	{
