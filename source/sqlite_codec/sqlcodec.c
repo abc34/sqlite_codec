@@ -26,7 +26,7 @@
 **---------------
 ** After creating of new database file or after opening an existing encrypted database file,
 **   sqlite3_open('first.db');
-** to specify the password need:
+** to specify the passphrase need:
 **   sqlite3_key_v2(... 'main', 'password') - set codec for 'main' (or 'first.db')
 ** or put SQL command:
 **   PRAGMA key = 'password';         // passphrase (not key)
