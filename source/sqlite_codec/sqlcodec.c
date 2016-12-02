@@ -1052,10 +1052,7 @@ int sqlcodec_backup(sqlite3* db, char* zDbName, int bTo, char* fileName, char* z
 	if (nKey <= 0) { zKey = NULL; nKey = 0; }
 	if (fileName == NULL)return SQLITE_ERROR;
 	if (bTo == 1)sqlite3OsDelete(db->pVfs, fileName, 1);
-	//if ((zKey[0] == 'x' || zKey[0] == 'X') && zKey[1] == '\'' && zKey[nKey - 1] == '\'')
-	//	zSql = sqlite3_mprintf("ATTACH '%s' AS vacuum_0000 KEY %s", fileName, zKey);
-	//else
-		zSql = sqlite3_mprintf("ATTACH '%q' AS vacuum_0000 KEY '%q'", fileName, zKey);
+	zSql = sqlite3_mprintf("ATTACH '%q' AS 'vacuum_0000' KEY '%q'", fileName, zKey);
 	rc = (zSql == NULL) ? SQLITE_NOMEM : sqlite3_exec(db, zSql, NULL, 0, NULL);
 	sqlite3_free(zSql);
 	if (rc != SQLITE_OK) return rc;
