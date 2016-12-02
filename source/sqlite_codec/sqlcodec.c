@@ -1,5 +1,5 @@
 /*
-*  29.10.2015
+*  29.10.2015 - 2016
 * 
 * 1. For encryption is used mbedtls library.
 * 2. Codec AES-256-GCM with a key length of 256/8 = 32 bytes and a length equal to iv, AES_BLOCK_SIZE = 16 bytes.
@@ -29,7 +29,7 @@
 * to specify the passphrase need:
 *   sqlite3_key_v2(db, 'main', 'password', pass_length); //set codec for 'main' (or 'first.db')
 * or
-*   sqlite3_open('file:first.db?hexkey=1234abcd',&db);
+*   sqlite3_open('file:first.db?hexkey=1234abcd',&db);<=== need to test
 *
 * or put SQL command:
 *   PRAGMA key = 'password';         // passphrase (not key)
@@ -98,7 +98,7 @@ void debug_out(char* str)
 #define AES_IV_SIZE				AES_BLOCK_SIZE
 #define GCM_TAG_SIZE			AES_BLOCK_SIZE
 #define CODEC_RESERVED_SIZE		(AES_IV_SIZE + GCM_TAG_SIZE)
-#define CODEC_PBKDF2_ITER		40000 //iter to get prekey from passphrase, or 0 iter to get prekey from base64key
+#define CODEC_PBKDF2_ITER		40000 //iter to get prekey from passphrase, or 0 iter to get prekey from base64 prekey
 #define CODEC_PBKDF2_ITER_FAST	100   //iter to get key from prekey
 
 typedef unsigned char byte;
@@ -177,7 +177,7 @@ SQLITE_API int SQLITE_STDCALL sqlite3_rekey(sqlite3 *db, void *zKey, int nKey) {
 /*
 * The function is called when you execute the
 *     ATTACH x AS y KEY z;
-* (also called inside VACUUM through the ATTACH '' AS vacuum_db;)
+* (also called inside VACUUM through the ATTACH '' AS 'vacuum_db';)
 * If the KEY expression z is not specified, the first is called sqlite3CodecGetKey() specifies the zKey and nKey.
 * If the KEY expression '' (z not set) then zKey=NULL, nKey=0 (sqlite3CodecGetKey is not called).
 * NOTE:
@@ -226,7 +226,7 @@ int sqlite3CodecAttach(sqlite3* db, int nDb, const void* zKey, int nKey)
 			}
 			else
 			{
-				//on "ATTACH 'file' AS name", initially password key was not set and assume that the attached database is not encrypted
+				//on "ATTACH 'file' AS 'name'", initially password key was not set and assume that the attached database is not encrypted
 				CODEC_TRACE(("  codec not installed (the KEY is NULL), then codec unsetted"));
 				rc = SQLITE_OK;
 				goto go_mutex_leave;
@@ -462,8 +462,8 @@ int sqlcodec_set_buffer(sqlCodecCTX* ctx, int size)
 *    key=PBKDF2(prekey, salt, CODEC_PBKDF2_ITER_FAST)
 *
 * NOTES:
-* hex key not work: when ATTACH file AS alias KEY X'abcd', then sqlite convert hex to blob and pKey not hex string
-* the last character in the base64prekey is '=' because the key length is not divisible by 3
+* - hex key not work: when ATTACH 'file' AS 'alias' KEY X'abcd', then sqlite convert hex to blob and pKey not hex string
+* - the last character in the base64 prekey is '=' because the key length is not divisible by 3
 */
 int sqlcodec_set_password(sqlCodecCTX* ctx, byte* pKey, int nKey)
 {
@@ -471,7 +471,7 @@ int sqlcodec_set_password(sqlCodecCTX* ctx, byte* pKey, int nKey)
 	if (ctx == NULL) { CODEC_TRACE(("  error: ctx=NULL")); return SQLITE_ERROR; }
 	if (nKey <= 0) { CODEC_TRACE(("  error: undefined password key for sqlCodecCTX=%X", ctx)); return SQLITE_ERROR; }
 
-	//detecting pKey is base64prekey
+	//detecting pKey is base64 prekey
 	if (Base64Dec(pKey,nKey,key)!=AES_MAX_KEY_SIZE)
 	{
 		//prekey derivation from passphrase
@@ -500,7 +500,7 @@ int sqlcodec_set_password(sqlCodecCTX* ctx, byte* pKey, int nKey)
 	return SQLITE_OK;
 }
 /*
-* Copy codec context to new with creation
+* Copy codec context
 */
 int sqlcodec_copy_ctx(sqlCodecCTX** pctx_dest, sqlCodecCTX* ctx_src)
 {
@@ -1118,7 +1118,7 @@ int sqlcodec_backup(sqlite3* db, char* zDbName, int bTo, char* fileName, char* z
 *
 * sqlite3_create_function(db, "export", 1, SQLITE_UTF8, NULL, &sqlcodec_exportFunc, NULL, NULL);
 * and used as:
-* ATTACH 'fileDb.sqlite' AS 'newDb' KEY='password'
+* ATTACH 'fileDb.sqlite' AS 'newDb' KEY 'password'
 * or
 * ATTACH 'fileDb.sqlite' AS 'newDb'
 * then
