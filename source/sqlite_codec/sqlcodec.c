@@ -1,46 +1,56 @@
 /*
-**  29.10.2015
-** 
-** 1. For encryption is used mbedtls library.
-** 2. Codec AES-256-GCM with a key length of 256/8 = 32 bytes and a length equal to iv, AES_BLOCK_SIZE = 16 bytes.
-** 3. The key is formed PBKDF2-SHA512 with the number of iterations
-**        from a passphrase    = (CODEC_PBKDF2_ITER + CODEC_PBKDF2_ITER_FAST)
-**        from a base64        = CODEC_PBKDF2_ITER_FAST
-** 4. The page size is fixed and equal to the value SQLITE_DEFAULT_PAGE_SIZE
-** 5. The size of the backup area on the page is equal to the amount CODEC_RESERVED_SIZE
-** 6. In the reserve area stored iv length AES_BLOCK_SIZE and gcm_tag length AES_BLOCK_SIZE.
-** 
-** When you compile you need to set the following preprocessor directives:
-** SQLITE_HAS_CODEC
-** SQLITE_TEMP_STORE=2 (use memory by default but allow the PRAGMA temp_store command to overrid)
-** SQLITE_DEFAULT_PAGE_SIZE=8192 (set any optional)
-** SQLITE_OMIT_DEPRECATED
-** 
-** Notes:
-** 1) buffer is needed to encrypt (!!!you can't inplace encrypt, we need to its return, see pager_write_pagelist buffer);
-** deprecaed ---> 2) read_ctx and write_ctx are used depending on the mode (mode) in sqlite3Codec()
-** deprecaed --->    write_ctx is used to write to the journal file (this gives you the ability to encrypt with a new key)
-**
-**---------------
-** examples
-**---------------
-** After creating of new database file or after opening an existing encrypted database file,
-**   sqlite3_open('first.db');
-** to specify the passphrase need:
-**   sqlite3_key_v2(... 'main', 'password') - set codec for 'main' (or 'first.db')
-** or put SQL command:
-**   PRAGMA key = 'password';         // passphrase (not key)
-**   PRAGMA key = 'abcdefghijklmnopqrstuvwxyz1234567890ABCDXYZ=';  //base64 43 chars + '=' equal 256 bit prekey (not key)
-** Further work with the database file will be executed in encrypted mode.
-**
-**   PRAGMA rekey = ... is used after PRAGMA key to change encryption key with a new one.
-** 
-** Attaching a file to 'main' database:
-**   ATTACH 'new_file.db' AS 'newdb';              - attaching unencrypted database file (zKey=NULL,nKey=0)
-**   ATTACH 'new_file.db' AS 'newdb' KEY '';       - attaching unencrypted database file (zKey=NULL,nKey=0)
-**   ATTACH 'new_file.db' AS 'newdb' KEY 'pass';   - attaching encrypted database file, used passphrase
-**   ATTACH 'new_file.db' AS 'newdb' KEY 'abc...z='; - attaching encrypted database file, used base64 prekey
-**---------------
+*  29.10.2015
+* 
+* 1. For encryption is used mbedtls library.
+* 2. Codec AES-256-GCM with a key length of 256/8 = 32 bytes and a length equal to iv, AES_BLOCK_SIZE = 16 bytes.
+* 3. The key is formed PBKDF2-SHA512 with the number of iterations
+*        from a passphrase    = (CODEC_PBKDF2_ITER + CODEC_PBKDF2_ITER_FAST)
+*        from a base64        = CODEC_PBKDF2_ITER_FAST
+* 4. The page size is fixed and equal to the value SQLITE_DEFAULT_PAGE_SIZE
+* 5. The size of the backup area on the page is equal to the amount CODEC_RESERVED_SIZE
+* 6. In the reserve area stored iv length AES_BLOCK_SIZE and gcm_tag length AES_BLOCK_SIZE.
+* 
+* When you compile you need to set the following preprocessor directives:
+* SQLITE_HAS_CODEC
+* SQLITE_TEMP_STORE=2 (use memory by default but allow the PRAGMA temp_store command to overrid)
+* SQLITE_DEFAULT_PAGE_SIZE=8192 (set any optional)
+* SQLITE_OMIT_DEPRECATED
+* 
+* Notes:
+* 1) buffer is needed to encrypt (!!!you can't inplace encrypt, we need to its return, see pager_write_pagelist buffer);
+* deprecaed ---> 2) read_ctx and write_ctx are used depending on the mode (mode) in sqlite3Codec()
+* deprecaed --->    write_ctx is used to write to the journal file (this gives you the ability to encrypt with a new key)
+*
+*---------------
+* examples
+*---------------
+* After creating of new database file or after opening an existing encrypted database file by
+*   sqlite3_open('first.db',&db);
+* to specify the passphrase need:
+*   sqlite3_key_v2(db, 'main', 'password', pass_length); //set codec for 'main' (or 'first.db')
+* or
+*   sqlite3_open('file:first.db?hexkey=1234abcd',&db);
+*
+* or put SQL command:
+*   PRAGMA key = 'password';         // passphrase (not key)
+*   PRAGMA key = 'abcdefghijklmnopqrstuvwxyz1234567890ABCDXYZ=';  //base64 43chars+'=' equal 256 bit prekey (not key)
+* Further work with the database file will be executed in encrypted mode.
+*
+*   PRAGMA rekey = 'new password'; 
+* is used to change encryption key with a new one and reencrypt database.
+*   PRAGMA rekey = ''; 
+* is used to decipher database file.
+* 
+* Attaching a file to 'main' database:
+*   ATTACH DATABASE 'dbfile' AS 'alias_name' KEY 'pass';   - attaching database file
+* examples:
+*   ATTACH DATABASE 'new_file.db' AS 'newdb';              - attaching unencrypted database 'newdb'
+*   ATTACH DATABASE 'new_file.db' AS 'newdb' KEY '';       - attaching unencrypted database 'newdb'
+*   ATTACH DATABASE 'new_file.db' AS 'newdb' KEY 'pass';   - attaching encrypted database, used passphrase
+*   ATTACH DATABASE 'new_file.db' AS 'newdb' KEY 'abc...z='; - attaching encrypted database, used base64 prekey
+* or
+*   SELECT sqlite_attach('dbfile','alias_name','passphrase');
+*---------------
 */
 
 #ifdef SQLITE_HAS_CODEC
@@ -135,10 +145,10 @@ void sqlite3_activate_see(const char* in) {/*no-op*/ }
 
 
 /*
-** sqlite3_key_v2
-** PARGMA key='password'; //passphrase
-** PARGMA key='ABCD...z=';//base64
-** PRAGMA key='';
+* sqlite3_key_v2
+* PARGMA key='password'; //passphrase
+* PARGMA key='ABCD...z=';//base64
+* PRAGMA key='';
 */
 SQLITE_API int SQLITE_STDCALL sqlite3_key_v2(sqlite3 *db, const char *zDbName, const void *pKey, int nKey)
 {
@@ -152,10 +162,10 @@ SQLITE_API int SQLITE_STDCALL sqlite3_key_v2(sqlite3 *db, const char *zDbName, c
 SQLITE_API int SQLITE_STDCALL sqlite3_key(sqlite3* db, const void* pKey, int nKey) { return sqlite3_key_v2(db, "main", pKey, nKey); }
 
 /*
-** sqlite3_rekey_v2
-** PARGMA rekey='password'; //passphrase
-** PARGMA rekey='ABCD...z=';//base64
-** PRAGMA rekey='';
+* sqlite3_rekey_v2
+* PARGMA rekey='password'; //passphrase
+* PARGMA rekey='ABCD...z=';//base64
+* PRAGMA rekey='';
 */
 SQLITE_API int SQLITE_STDCALL sqlite3_rekey_v2(sqlite3* db, const char *zDbName, void* zKey, int nKey)
 {
@@ -165,13 +175,13 @@ SQLITE_API int SQLITE_STDCALL sqlite3_rekey_v2(sqlite3* db, const char *zDbName,
 SQLITE_API int SQLITE_STDCALL sqlite3_rekey(sqlite3 *db, void *zKey, int nKey) { return sqlite3_rekey_v2(db, "main", zKey, nKey); }
 
 /*
-** The function is called when you execute the
-**     ATTACH x AS y KEY z;
-** (also called inside VACUUM through the ATTACH '' AS vacuum_db;)
-** If the KEY expression z is not specified, the first is called sqlite3CodecGetKey() specifies the zKey and nKey.
-** If the KEY expression '' (z not set) then zKey=NULL, nKey=0 (sqlite3CodecGetKey is not called).
-** NOTE:
-** for empty key string '' sqlite return zKey != NULL and nKey==0, in this case, you should check the nKey.
+* The function is called when you execute the
+*     ATTACH x AS y KEY z;
+* (also called inside VACUUM through the ATTACH '' AS vacuum_db;)
+* If the KEY expression z is not specified, the first is called sqlite3CodecGetKey() specifies the zKey and nKey.
+* If the KEY expression '' (z not set) then zKey=NULL, nKey=0 (sqlite3CodecGetKey is not called).
+* NOTE:
+* for empty key string '' sqlite return zKey != NULL and nKey==0, in this case, you should check the nKey.
 */
 int sqlite3CodecAttach(sqlite3* db, int nDb, const void* zKey, int nKey)
 {
@@ -189,7 +199,7 @@ int sqlite3CodecAttach(sqlite3* db, int nDb, const void* zKey, int nKey)
 		//without encryption resetting nReserve=0 and codec = NULL if available
 		if (sqlite3PagerGetCodec(sqlite3BtreePager(pDb->pBt)) != NULL)
 		{
-			sqlite3BtreePager(pDb->pBt)->btsFlags &= ~BTS_PAGESIZE_FIXED;//before sqlite3BtreeSetPageSize unset the BTS_PAGESIZE_FIXED flag
+			pDb->pBt->pBt->btsFlags &= ~BTS_PAGESIZE_FIXED;//before sqlite3BtreeSetPageSize unset the BTS_PAGESIZE_FIXED flag
 			sqlite3BtreeSetPageSize(pDb->pBt, sqlite3BtreeGetPageSize(pDb->pBt), 0, 0);
 			sqlite3PagerSetCodec(sqlite3BtreePager(pDb->pBt), NULL, NULL, NULL, NULL);
 			rc = SQLITE_OK;
@@ -208,7 +218,7 @@ int sqlite3CodecAttach(sqlite3* db, int nDb, const void* zKey, int nKey)
 			//exception: for VACUUM will be attached temporary database with name = 'vacuum_db' (see: sqlite3RunVacuum)
 			if (strcmp(pDb->zDbSName, "vacuum_db") == 0)
 			{
-				src_ctx = sqlite3PagerGetCodec(sqlite3BtreePager(db->aDb[0].pBt));
+				src_ctx = (sqlCodecCTX*)sqlite3PagerGetCodec(sqlite3BtreePager(db->aDb[0].pBt));
 				if (src_ctx == NULL) { CODEC_TRACE(("  error: main db unencrypted, same vacuum_db unencrypted!")); goto go_mutex_leave; }
 				rc = sqlcodec_copy_ctx(&ctx, src_ctx);
 				if (rc != SQLITE_OK) { CODEC_TRACE(("  error: copy ctx from main db to vacuum_db !")); goto go_mutex_leave; }
@@ -231,18 +241,22 @@ int sqlite3CodecAttach(sqlite3* db, int nDb, const void* zKey, int nKey)
 		sqlite3PagerSetCodec(sqlite3BtreePager(pDb->pBt), sqlite3Codec, sqlite3CodecSizeChng, sqlite3FreeCodecArg, (void*)ctx);
 		//--TODO: in the future you can make a change pagesize (nReserve will remain unchanged)
 		//setting pagesize и nReserve в db
-		sqlite3BtreePager(pDb->pBt)->btsFlags &= ~BTS_PAGESIZE_FIXED;//before sqlite3BtreeSetPageSize unset the BTS_PAGESIZE_FIXED flag
-		sqlite3BtreeSetPageSize(pDb->pBt, ctx->page_size, CODEC_RESERVED_SIZE, 0);
-		/* force secure delete. This has the benefit of wiping internal data when deleted
-		and also ensures that all pages are written to disk (i.e. not skipped by
-		sqlite3PagerDontWrite optimizations) */
+		pDb->pBt->pBt->btsFlags  &= ~BTS_PAGESIZE_FIXED;//before sqlite3BtreeSetPageSize unset the BTS_PAGESIZE_FIXED flag
+		sqlite3BtreeSetPageSize(pDb->pBt, ctx->page_size, CODEC_RESERVED_SIZE, 1);//iFix=1
+		//force secure delete. This has the benefit of wiping internal data when deleted
+		//and also ensures that all pages are written to disk (i.e. not skipped by
+		//sqlite3PagerDontWrite optimizations)
 		sqlite3BtreeSecureDelete(pDb->pBt, 1);
-		/* if fd is null, then this is an in-memory database and
-		we dont' want to overwrite the AutoVacuum settings
-		if not null, then set to the default */
+		//if fd is null, then this is an in-memory database and
+		//we dont' want to overwrite the AutoVacuum settings
+		//if not null, then set to the default
 		if (!sqlite3PagerIsMemdb(sqlite3BtreePager(pDb->pBt))) { sqlite3BtreeSetAutoVacuum(pDb->pBt, SQLITE_DEFAULT_AUTOVACUUM); }
 		CODEC_TRACE(("sqlite3CodecAttach: end\n"));
 		rc = SQLITE_OK;
+		//if you have previously been trying to open an encrypted file without the key,
+		//the first encrypted page of the db file will be written to the in-memory cache
+		//here to clear the cache so that all pages loaded with encryption enabled
+		sqlite3PagerClearCache(sqlite3BtreePager(pDb->pBt));
 	}
 go_mutex_leave:
 	sqlite3_mutex_leave(db->mutex);
@@ -250,8 +264,8 @@ go_mutex_leave:
 }
 
 /*
-** Getting key token or null when requested key.
-** The function is called from SQLite (such as when you ATTACH without specifying key or with VACUUM)
+* Getting key token or null when requested key.
+* The function is called from SQLite (such as when you ATTACH without specifying key or with VACUUM)
 */
 void sqlite3CodecGetKey(sqlite3* db, int nDb, void** zKey, int* nKey)
 {
@@ -260,10 +274,10 @@ void sqlite3CodecGetKey(sqlite3* db, int nDb, void** zKey, int* nKey)
 }
 
 /*
-** An implementation of the codec in the structure of Pager from pager.c
-** sqlite3Codec can be called in multiple modes.
-** encrypt mode - expected to return a pointer to the encrypted data without altering pData.
-** decrypt mode - expected to return a pointer to pData, with the data decrypted in the input buffer.
+* An implementation of the codec in the structure of Pager from pager.c
+* sqlite3Codec can be called in multiple modes.
+* encrypt mode - expected to return a pointer to the encrypted data without altering pData.
+* decrypt mode - expected to return a pointer to pData, with the data decrypted in the input buffer.
 */
 void* sqlite3Codec(void *pCodec, void *data, Pgno pgno, int mode)
 {
@@ -292,7 +306,7 @@ void* sqlite3Codec(void *pCodec, void *data, Pgno pgno, int mode)
 	return pData;
 }
 /*
-** Wipe and free allocated memory for the context
+* Wipe and free allocated memory for the context
 */
 void sqlite3FreeCodecArg(void *pCodec)
 {
@@ -301,7 +315,7 @@ void sqlite3FreeCodecArg(void *pCodec)
 	CODEC_TRACE(("\nsqlite3FreeCodecArg:  sqlCodecCTX=%X is free\n", (char*)pCodec));
 }
 /*
-** Notify of page size changes
+* Notify of page size changes
 */
 void sqlite3CodecSizeChng(void* pCodec, int size, int reserved)
 {
@@ -319,8 +333,8 @@ void sqlite3CodecSizeChng(void* pCodec, int size, int reserved)
 
 //--------------- sqlcodec --------------------------
 /*
-** Allocate memory.
-** Uses sqlite's internall malloc wrapper
+* Allocate memory.
+* Uses sqlite's internall malloc wrapper
 */
 void* sqlcodec_malloc(int sz)
 {
@@ -338,7 +352,7 @@ void* sqlcodec_malloc(int sz)
 	return ptr;
 }
 /*
-** Free and wipe memory; uses SQLites internal sqlite3_free so that memory
+* Free and wipe memory; uses SQLites internal sqlite3_free so that memory
 */
 void sqlcodec_free(void *ptr, int sz)
 {
@@ -360,14 +374,14 @@ void sqlcodec_free(void *ptr, int sz)
 	}
 }
 /*
-** Random numbers generator; return 0 (OK) || 1 (ERROR)
+* Random numbers generator; return 0 (OK) || 1 (ERROR)
 */
 int RNG_GenerateBlock(byte* dst, int len)
 {
 	size_t olen = 0; mbedtls_platform_entropy_poll(NULL, dst, len, &olen); return (olen == len ? 0: 1);
 }
 /*
-** Codec context initialisation
+* Codec context initialisation
 */
 int sqlcodec_init(sqlCodecCTX** ptr_ctx, Db *pDb, byte* pKey, int nKey)
 {
@@ -381,7 +395,8 @@ int sqlcodec_init(sqlCodecCTX** ptr_ctx, Db *pDb, byte* pKey, int nKey)
 	ctx = *ptr_ctx;
 
 	//init ctx->salt
-	if (fd == NULL || fd->pMethods == NULL || sqlite3OsRead(fd, ctx->salt, SQLITE_FILE_HEADER_SZ, 0) != SQLITE_OK)
+	if (sqlite3PagerReadFileheader(sqlite3BtreePager(pDb->pBt),SQLITE_FILE_HEADER_SZ,ctx->salt) != SQLITE_OK)
+	//if (fd == NULL || fd->pMethods == NULL || sqlite3OsRead(fd, ctx->salt, SQLITE_FILE_HEADER_SZ, 0) != SQLITE_OK)
 	{
 		if (RNG_GenerateBlock(ctx->salt, SQLITE_FILE_HEADER_SZ))return SQLITE_ERROR;
 	}
@@ -398,7 +413,7 @@ int sqlcodec_init(sqlCodecCTX** ptr_ctx, Db *pDb, byte* pKey, int nKey)
 	return SQLITE_OK;
 }
 /*
-** Memory allocation and init codec context
+* Memory allocation and init codec context
 */
 int sqlcodec_create(sqlCodecCTX** ptr_ctx)
 {
@@ -410,7 +425,7 @@ int sqlcodec_create(sqlCodecCTX** ptr_ctx)
 	return SQLITE_OK;
 }
 /*
-** Free codec context
+* Free codec context
 */
 void sqlcodec_destroy(sqlCodecCTX** ptr_ctx)
 {
@@ -430,7 +445,7 @@ void sqlcodec_destroy(sqlCodecCTX** ptr_ctx)
 	*ptr_ctx = NULL;
 }
 /*
-** Setting page_size and buffer of codec context
+* Setting page_size and buffer of codec context
 */
 int sqlcodec_set_buffer(sqlCodecCTX* ctx, int size)
 {
@@ -439,16 +454,16 @@ int sqlcodec_set_buffer(sqlCodecCTX* ctx, int size)
 	return SQLITE_OK;
 }
 /*
-** Setting new key for codec context
-** if nKey>0, then pKey is passphrase or base64 prekey, then
-**    prekey=PBKDF2(passphrase, salt, CODEC_PBKDF2_ITER) (if pKey is passphrase)
-**    prekey=base64prekey  (if pKey is base64 prekey)
-** and
-**    key=PBKDF2(prekey, salt, CODEC_PBKDF2_ITER_FAST)
-**
-** NOTES:
-** hex key not work: when ATTACH file AS alias KEY X'abcd', then sqlite convert hex to blob and pKey not hex string
-** the last character in the base64prekey is '=' because the key length is not divisible by 3
+* Setting new key for codec context
+* if nKey>0, then pKey is passphrase or base64 prekey, then
+*    prekey=PBKDF2(passphrase, salt, CODEC_PBKDF2_ITER) (if pKey is passphrase)
+*    prekey=base64prekey  (if pKey is base64 prekey)
+* and
+*    key=PBKDF2(prekey, salt, CODEC_PBKDF2_ITER_FAST)
+*
+* NOTES:
+* hex key not work: when ATTACH file AS alias KEY X'abcd', then sqlite convert hex to blob and pKey not hex string
+* the last character in the base64prekey is '=' because the key length is not divisible by 3
 */
 int sqlcodec_set_password(sqlCodecCTX* ctx, byte* pKey, int nKey)
 {
@@ -457,9 +472,7 @@ int sqlcodec_set_password(sqlCodecCTX* ctx, byte* pKey, int nKey)
 	if (nKey <= 0) { CODEC_TRACE(("  error: undefined password key for sqlCodecCTX=%X", ctx)); return SQLITE_ERROR; }
 
 	//detecting pKey is base64prekey
-	if ( !(nKey==(((AES_MAX_KEY_SIZE)+2)/3)*4 &&
-		   ( (AES_MAX_KEY_SIZE)%3==1 && pKey[nKey-2]=='=' && pKey[nKey-1]=='=' || (AES_MAX_KEY_SIZE)%3==2 && pKey[nKey-1]=='=' ) &&
-		   Base64Dec(pKey,nKey,key)==0) )
+	if (Base64Dec(pKey,nKey,key)!=AES_MAX_KEY_SIZE)
 	{
 		//prekey derivation from passphrase
 		mbedtls_md_context_t md_ctx; mbedtls_md_init(&md_ctx);
@@ -479,7 +492,7 @@ int sqlcodec_set_password(sqlCodecCTX* ctx, byte* pKey, int nKey)
 	mbedtls_cipher_init(&ctx->ctx);
 	mbedtls_cipher_setup(&ctx->ctx, mbedtls_cipher_info_from_type(MBEDTLS_CIPHER_AES_256_GCM));
 	mbedtls_cipher_set_padding_mode(&ctx->ctx, MBEDTLS_PADDING_NONE);
-	mbedtls_cipher_setkey(&ctx->ctx, key, AES_MAX_KEY_SIZE<<3, MBEDTLS_ENCRYPT);
+	mbedtls_cipher_setkey(&ctx->ctx, key, (AES_MAX_KEY_SIZE)<<3, MBEDTLS_ENCRYPT);
 
 	CODEC_TRACE(("  sqlcodec_set_password: key='%s'", pKey));
 
@@ -487,7 +500,7 @@ int sqlcodec_set_password(sqlCodecCTX* ctx, byte* pKey, int nKey)
 	return SQLITE_OK;
 }
 /*
-** Copy codec context to new with creation
+* Copy codec context to new with creation
 */
 int sqlcodec_copy_ctx(sqlCodecCTX** pctx_dest, sqlCodecCTX* ctx_src)
 {
@@ -499,7 +512,7 @@ int sqlcodec_copy_ctx(sqlCodecCTX** pctx_dest, sqlCodecCTX* ctx_src)
 	return SQLITE_ERROR;
 }
 /*
-** Auxillary functions
+* Auxillary functions
 */
 int hexsym2int(char c) { return (c >= '0' && c <= '9') ? (c)-'0' : (c >= 'A'&& c <= 'F') ? (c)-'A' + 10 : (c >= 'a' && c <= 'f') ? (c)-'a' + 10 : 0; }
 void hex2bin(const byte* hex, int sz, byte* out) { int len = sz - (sz & 1), i; for (i = 0; i < len; i += 2) { out[i / 2] = (hexsym2int(hex[i]) << 4) | hexsym2int(hex[i + 1]); }if (sz & 1)out[i / 2] = hexsym2int(hex[i]); }
@@ -509,21 +522,93 @@ void bin2hex(const byte* bin, int sz, byte* out) { byte ch[17] = { "0123456789ab
 //slen - length of s,
 //out  - output character array (without terminating character '\0'),
 //       output length = int((slen+2)/3)*4
-int Base64Enc(const unsigned char* s,int slen, unsigned char* out){const static unsigned char* codesym="ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";unsigned int c,len=slen/3;if(slen<=0)return -1;while(len--){c=*s++;c<<=8;c|=*s++;c<<=8;c|=*s++;*out++=codesym[(c>>18)&0x3F];*out++=codesym[(c>>12)&0x3F];*out++=codesym[(c>>6)&0x3F];*out++=codesym[(c)&0x3F];}if(slen%3 == 2){c=*s++;c<<=8;c|=*s++;c<<=8;*out++=codesym[(c>>18)&0x3F];*out++=codesym[(c>>12)&0x3F];*out++=codesym[(c>>6)&0x3F];*out='=';}else if(slen%3 == 1){c=*s;c<<=16;*out++=codesym[(c>>18)&0x3F];*out++=codesym[(c>>12)&0x3F];*out++='=';*out='=';}return 0;}
+//returns
+//      the number of characters actually written to the output array
+//      or -1 on error.
+int Base64Enc(const unsigned char* s,int slen, unsigned char* out)
+{
+	const static unsigned char* codesym="ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+	unsigned int c,len=slen/3;
+	if(slen<=0)return-1;
+	while(len--)
+	{
+		c=*s++;c<<=8;c|=*s++;c<<=8;c|=*s++;
+		*out++=codesym[(c>>18)&0x3F];
+		*out++=codesym[(c>>12)&0x3F];
+		*out++=codesym[(c>>6)&0x3F];
+		*out++=codesym[(c)&0x3F];
+	}
+	if(slen%3 == 2)
+	{
+		c=*s++;c<<=8;c|=*s++;c<<=8;
+		*out++=codesym[(c>>18)&0x3F];
+		*out++=codesym[(c>>12)&0x3F];
+		*out++=codesym[(c>>6)&0x3F];
+		*out='=';
+	}
+	else if(slen%3 == 1)
+	{
+		c=*s;c<<=16;
+		*out++=codesym[(c>>18)&0x3F];
+		*out++=codesym[(c>>12)&0x3F];
+		*out++='=';
+		*out='=';
+	}
+	return (slen+2)/3*4;
+}
 //decoding base64 character array to blob (byte array)
-//s    - input base64 character array,
-//slen - length of s, divisible by 4,
+//s    - input base64 character array (can include '\r','\n',' '),
+//slen - length of s,
 //out  - output byte array,
-//       output length = int(slen/4)*3-num_eq,
-//              num_eq - the number of tail symbols '=',
-//       out may be the same as s (inplace)
+//       output length = s_len_without_spaces/4*3-num_eq,
+//         s_len_without_spaces - length s without space characters, divisible by 4,
+//         num_eq - the number of tail symbols '=',
+//       out may be the same as s (inplace),
+//returns
+//      the number of characters actually written to the output array
+//      or -1 on error.
 int Base64Dec(const unsigned char* s,int slen,unsigned char* out)
 {
-	const static unsigned char symdec[]={-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,62,-1,-1,-1,63,52,53,54,55,56,57,58,59,60,61,-1,-1,-1,-1,-1,-1,-1, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24,25,-1,-1,-1,-1,-1,-1,26,27,28,29,30,31,32,33,34,35,36,37,38,39,40,41,42,43,44,45,46,47,48,49,50,51,-1,-1,-1,-1,-1};
-	unsigned int c,len=slen/4-1;unsigned char a,b=0;if(slen<4 || slen&3)return -1;
-	while(len--){a=symdec[*s++];b|=a; c=a;c<<=6;a=symdec[*s++];b|=a;c|=a;c<<=6;a=symdec[*s++];b|=a;c|=a;c<<=6;a=symdec[*s++];b|=a;c|=a;if(b>63)return -1;*out++=c>>16;*out++=c>>8;*out++=c;}
-	a=symdec[*s++];b|=a;c=a;c<<=6;a=symdec[*s++];b|=a;c|=a;c<<=6;if(s[0]!='='){a=symdec[s[0]];b|=a;c|=a;}c<<=6;if(s[1]!='='){a=symdec[s[1]];b|=a;c|=a;}if(b>63)return -1;*out++=c>>16;if(s[0]!='=')*out++=c>>8;if(s[1]!='=')*out=c;
-	return 0;
+	const static unsigned char symdec[] = {
+	127,127,127,127,127,127,127,127,127,127,127,127,127,127,127,127,
+	127,127,127,127,127,127,127,127,127,127,127,127,127,127,127,127,
+	127,127,127,127,127,127,127,127,127,127,127, 62,127,127,127, 63,
+	 52, 53, 54, 55, 56, 57, 58, 59, 60, 61,127,127,127,  0,127,127,
+	127,  0,  1,  2,  3,  4,  5,  6,  7,  8,  9, 10, 11, 12, 13, 14,
+	 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25,127,127,127,127,127,
+	127, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40,
+	 41, 42, 43, 44, 45, 46, 47, 48, 49, 50, 51,127,127,127,127,127};
+	unsigned int c,len=0;unsigned char a,b,a0,a1;
+	unsigned char* s_end=(unsigned char*)s+slen;
+	if(slen<=0)return -1;
+	while(1)
+	{
+		while(s<s_end && (*s=='\r' || *s=='\n' || *s==' '))s++;if(s==s_end)break;
+		a=*s++;if(a>127)return-1;b=symdec[a];if(b>63)return-1;c=b;c<<=6;
+		while(s<s_end && (*s=='\r' || *s=='\n' || *s==' '))s++;if(s==s_end)return-1;
+		a=*s++;if(a>127)return-1;b=symdec[a];if(b>63)return-1;c|=b;c<<=6;
+		while(s<s_end && (*s=='\r' || *s=='\n' || *s==' '))s++;if(s==s_end)return-1;
+		a=*s++;if(a>127)return-1;b=symdec[a];if(b>63)return-1;c|=b;c<<=6;a0=a;
+		while(s<s_end && (*s=='\r' || *s=='\n' || *s==' '))s++;if(s==s_end)return-1;
+		a=*s++;if(a>127)return-1;b=symdec[a];if(b>63)return-1;c|=b;a1=a;
+
+		if(a0=='=' && a1!='=')return-1;
+		if(a0=='='||a1=='=')
+		{
+			*out++=c>>16;len++;
+			if(a0!='='){*out++=c>>8;len++;}
+			while(s<s_end && (*s=='\r' || *s=='\n' || *s==' '))s++;if(s==s_end)break;
+			return-1;
+		}
+		else
+		{
+			*out++=c>>16;
+			*out++=c>>8;
+			*out++=c;
+			len+=3;
+		}
+	}
+	return len;
 }
 
 
@@ -532,7 +617,7 @@ int Base64Dec(const unsigned char* s,int slen,unsigned char* out)
 
 
 /*
-** Encryption function
+* Encryption function
 */
 int sqlcodec_encrypt(unsigned int page, sqlCodecCTX *ctx, byte *src, byte* dst, int size)
 {
@@ -547,7 +632,7 @@ int sqlcodec_encrypt(unsigned int page, sqlCodecCTX *ctx, byte *src, byte* dst, 
 	return rc;
 }
 /*
-** Decryption function
+* Decryption function
 */
 int sqlcodec_decrypt(unsigned int page, sqlCodecCTX *ctx, byte *src, byte* dst, int size)
 {
@@ -587,7 +672,7 @@ int sqlcodec_decrypt(unsigned int page, sqlCodecCTX *ctx, byte *src, byte* dst, 
 
 
 /*
-** This is copy of execSql and execSqlF.
+* This is copy of execSql and execSqlF.
 */
 int sqlcodec_execSql(sqlite3 *db, char **pzErrMsg, const char *zSql)
 {
@@ -627,9 +712,10 @@ int sqlcodec_execSqlF(sqlite3 *db, char **pzErrMsg, const char *zSql, ...)
   return rc;
 }
 
+#if 0
 /*
-**Clear attached database
-**used in sqlcodec_exportFull
+*Clear attached database
+*used in sqlcodec_exportFull
 */
 int sqlcodec_clearall(sqlite3* db, char* szDbName)
 {
@@ -665,11 +751,12 @@ int sqlcodec_clearall(sqlite3* db, char* szDbName)
 	);
 	return rc;
 }
+#endif
 
 /*
-** Export entries from attached database with name in fromDb to attached database with name in toDb.
-** Before export the attached database toDb will be cleared.
-** Based on sqlite3RunVacuum from vacuum.c
+* Export entries from attached database with name in fromDb to attached database with name in toDb.
+* Before export the attached database toDb will be cleared.
+* Based on sqlite3RunVacuum from vacuum.c
 */
 int sqlcodec_exportFull(sqlite3* db, char* fromDb, char* toDb)
 {
@@ -710,9 +797,9 @@ int sqlcodec_exportFull(sqlite3* db, char* fromDb, char* toDb)
 	//rc = sqlcodec_clearall(db, toDb);
 	//if( rc!=SQLITE_OK ) return rc;
 
-	/* Save the current value of the database flags so that it can be
-	** restored before returning. Then set the writable-schema flag, and
-	** disable CHECK and foreign key constraints.  */
+	//Save the current value of the database flags so that it can be
+	//restored before returning. Then set the writable-schema flag, and
+	//disable CHECK and foreign key constraints.
 	saved_flags = db->flags;
 	saved_nChange = db->nChange;
 	saved_nTotalChange = db->nTotalChange;
@@ -729,9 +816,8 @@ int sqlcodec_exportFull(sqlite3* db, char* fromDb, char* toDb)
 	sqlite3BtreeSetSpillSize(pTo, sqlite3BtreeSetSpillSize(pFrom,0));
 	sqlite3BtreeSetPagerFlags(pTo, PAGER_SYNCHRONOUS_OFF|PAGER_CACHESPILL);
 
-	/* Query the schema of the main database. Create a mirror schema
-	** in the temporary database.
-	*/
+	//Query the schema of the main database. Create a mirror schema
+	//in the temporary database.
 	db->init.iDb = nTo; /* force new CREATE statements into toDb */
 	rc = sqlcodec_execSqlF(db, &pzErrMsg,
 		"SELECT sql FROM \"%w\".sqlite_master"
@@ -748,10 +834,9 @@ int sqlcodec_exportFull(sqlite3* db, char* fromDb, char* toDb)
 	if( rc!=SQLITE_OK ) goto end_of_export;
 	db->init.iDb = 0;
 
-	/* Loop through the tables in the main database. For each, do
-	** an "INSERT INTO vacuum_db.xxx SELECT * FROM main.xxx;" to copy
-	** the contents to the temporary database.
-	*/
+	//Loop through the tables in the main database. For each, do
+	//an "INSERT INTO vacuum_db.xxx SELECT * FROM main.xxx;" to copy
+	//the contents to the temporary database.
 	rc = sqlcodec_execSqlF(db, &pzErrMsg,
 		"SELECT'INSERT INTO \"%w\".'||quote(name)"
 		"||' SELECT*FROM\"%w\".'||quote(name)"
@@ -786,7 +871,7 @@ end_of_export:
 }
 
 /*
-** test database pages to validation
+* test database pages to validation
 */
 int sqlcodec_replayAllPages(Db* pDb)
 {
@@ -816,11 +901,11 @@ int sqlcodec_replayAllPages(Db* pDb)
 }
 
 /*
-** Reencrypt database number Db with or without key.
-** When all OK, then return SQLITE_OK.
-** When error, then return error code.
-** If error code = SQLITE_CORRUPT and database rollback failed,
-**                                then main database will not restored !!!
+* Reencrypt database number Db with or without key.
+* When all OK, then return SQLITE_OK.
+* When error, then return error code.
+* If error code = SQLITE_CORRUPT and database rollback failed,
+*                 then main database will not restored !!!
 */
 int sqlcodec_rekey(sqlite3 *db, int nDb, char* zKey, int nKey)
 {
@@ -837,7 +922,7 @@ int sqlcodec_rekey(sqlite3 *db, int nDb, char* zKey, int nKey)
 	//if (ctx == NULL || zKey == NULL)
 	{
 		//will create a temporary random password for backup file, format base64
-		byte base64prekey[((AES_MAX_KEY_SIZE)+2)/3*4+1];RNG_GenerateBlock(base64prekey+sizeof(base64prekey)-AES_MAX_KEY_SIZE,AES_MAX_KEY_SIZE);Base64Enc(base64prekey+sizeof(base64prekey)-AES_MAX_KEY_SIZE,AES_MAX_KEY_SIZE,base64prekey);base64prekey[sizeof(base64prekey)-1]=0;
+		byte base64prekey[((AES_MAX_KEY_SIZE)+2)/3*4+1];RNG_GenerateBlock(base64prekey+sizeof(base64prekey)-AES_MAX_KEY_SIZE,AES_MAX_KEY_SIZE);if(Base64Enc(base64prekey+sizeof(base64prekey)-AES_MAX_KEY_SIZE,AES_MAX_KEY_SIZE,base64prekey)==-1)return SQLITE_NOMEM;base64prekey[sizeof(base64prekey)-1]=0;
 		//backup database to encrypted temporary file
 		rc = sqlcodec_backup(db, pDb->zDbSName, 1, "vacuum_0000.tmp", (char*)base64prekey, sizeof(base64prekey)-1);
 		//restore from backup with zKey
@@ -952,10 +1037,10 @@ int sqlcodec_rekey(sqlite3 *db, int nDb, char* zKey, int nKey)
 
 
 /*
-** Backup database to/from disk file with encryption by zKey
-** if bTo = 1 - then db -> file with zKey
-** if bTo = 0 - then db <- file with zKey
-** if zKey is not null, then it used, otherwise backup without encryption
+* Backup database to/from disk file with encryption by zKey
+* if bTo = 1 - then db -> file with zKey
+* if bTo = 0 - then db <- file with zKey
+* if zKey is not null, then it used, otherwise backup without encryption
 */
 int sqlcodec_backup(sqlite3* db, char* zDbName, int bTo, char* fileName, char* zKey, int nKey)
 {
@@ -967,10 +1052,10 @@ int sqlcodec_backup(sqlite3* db, char* zDbName, int bTo, char* fileName, char* z
 	if (nKey <= 0) { zKey = NULL; nKey = 0; }
 	if (fileName == NULL)return SQLITE_ERROR;
 	if (bTo == 1)sqlite3OsDelete(db->pVfs, fileName, 1);
-	if ((zKey[0] == 'x' || zKey[0] == 'X') && zKey[1] == '\'' && zKey[nKey - 1] == '\'')
-		zSql = sqlite3_mprintf("ATTACH '%s' AS vacuum_0000 KEY %s", fileName, zKey);
-	else
-		zSql = sqlite3_mprintf("ATTACH '%s' AS vacuum_0000 KEY '%s'", fileName, zKey);
+	//if ((zKey[0] == 'x' || zKey[0] == 'X') && zKey[1] == '\'' && zKey[nKey - 1] == '\'')
+	//	zSql = sqlite3_mprintf("ATTACH '%s' AS vacuum_0000 KEY %s", fileName, zKey);
+	//else
+		zSql = sqlite3_mprintf("ATTACH '%q' AS vacuum_0000 KEY '%q'", fileName, zKey);
 	rc = (zSql == NULL) ? SQLITE_NOMEM : sqlite3_exec(db, zSql, NULL, 0, NULL);
 	sqlite3_free(zSql);
 	if (rc != SQLITE_OK) return rc;
