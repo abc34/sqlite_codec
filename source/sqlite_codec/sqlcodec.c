@@ -30,7 +30,7 @@
 * to specify the passphrase need:
 *   sqlite3_key_v2(db, 'main', 'password', pass_length); //set codec for 'main' (or 'first.db')
 * or
-*   sqlite3_open('file:first.db?hexkey=1234abcd',&db);<=== not tested !!!
+*   sqlite3_open_v2("file:first.db?hexkey=1234abcd",&db,SQLITE_OPEN_READWRITE|SQLITE_OPEN_URI,NULL); //hexkey in codec equal passphrase
 *
 * or put SQL command:
 *   PRAGMA key = 'password';         // passphrase (not key)
@@ -197,15 +197,15 @@ int sqlite3CodecAttach(sqlite3* db, int nDb, const void* zKey, int nKey)
 	if (nKey <= 0) { zKey = NULL; nKey = 0; }//CAST (zKey,nKey)
 	if (zKey == NULL)
 	{
-		//without encryption resetting nReserve=0 and codec = NULL if available
+		//without encryption resetting nReserve=0 and set codec = NULL
 		if (sqlite3PagerGetCodec(sqlite3BtreePager(pDb->pBt)) != NULL)
 		{
 			pDb->pBt->pBt->btsFlags &= ~BTS_PAGESIZE_FIXED;//before sqlite3BtreeSetPageSize unset the BTS_PAGESIZE_FIXED flag
 			sqlite3BtreeSetPageSize(pDb->pBt, sqlite3BtreeGetPageSize(pDb->pBt), 0, 0);
 			sqlite3PagerSetCodec(sqlite3BtreePager(pDb->pBt), NULL, NULL, NULL, NULL);
-			rc = SQLITE_OK;
 		}
-		CODEC_TRACE(("  error: zKey=NULL, then codec unset"));
+		rc = SQLITE_OK;
+		CODEC_TRACE(("  warn: zKey=NULL, then codec is not installed"));
 	}
 	else
 	{
@@ -228,7 +228,7 @@ int sqlite3CodecAttach(sqlite3* db, int nDb, const void* zKey, int nKey)
 			else
 			{
 				//on "ATTACH 'file' AS 'name'", initially password key was not set and assume that the attached database is not encrypted
-				CODEC_TRACE(("  codec not installed (the KEY is NULL), then codec unsetted"));
+				CODEC_TRACE(("  codec is not installed (the KEY is NULL)"));
 				rc = SQLITE_OK;
 				goto go_mutex_leave;
 			}
@@ -243,7 +243,7 @@ int sqlite3CodecAttach(sqlite3* db, int nDb, const void* zKey, int nKey)
 		//--TODO: in the future you can make a change pagesize (nReserve will remain unchanged)
 		//setting pagesize и nReserve в db
 		pDb->pBt->pBt->btsFlags  &= ~BTS_PAGESIZE_FIXED;//before sqlite3BtreeSetPageSize unset the BTS_PAGESIZE_FIXED flag
-		sqlite3BtreeSetPageSize(pDb->pBt, ctx->page_size, CODEC_RESERVED_SIZE, 1);//iFix=1
+		sqlite3BtreeSetPageSize(pDb->pBt, ctx->page_size, CODEC_RESERVED_SIZE, 0);//iFix=0, else VACUUM error: see sqlite3BtreeSetPageSize()
 		//force secure delete. This has the benefit of wiping internal data when deleted
 		//and also ensures that all pages are written to disk (i.e. not skipped by
 		//sqlite3PagerDontWrite optimizations)
