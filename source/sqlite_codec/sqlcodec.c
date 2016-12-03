@@ -1,5 +1,5 @@
 /*
-*  29.10.2015 - 2016 
+*  29.10.2015 - 2016
 * 
 * 1. For encryption is used mbedtls library.
 * 2. Codec AES-256-GCM with a key length of 256/8 = 32 bytes and a length equal to iv, AES_BLOCK_SIZE = 16 bytes.
@@ -17,7 +17,8 @@
 * SQLITE_OMIT_DEPRECATED
 * 
 * Notes:
-* 1) buffer is needed to encrypt (!!!you can't inplace encrypt, we need to its return, see pager_write_pagelist buffer);
+* PRAGMA KEY or PRAGMA REKEY sqlite does not check for errors!!! On errors silently return SQLITE_OK.
+* ) buffer is needed to encrypt (!!!you can't inplace encrypt, we need to its return, see pager_write_pagelist buffer);
 * deprecaed ---> 2) read_ctx and write_ctx are used depending on the mode (mode) in sqlite3Codec()
 * deprecaed --->    write_ctx is used to write to the journal file (this gives you the ability to encrypt with a new key)
 *
@@ -29,7 +30,7 @@
 * to specify the passphrase need:
 *   sqlite3_key_v2(db, 'main', 'password', pass_length); //set codec for 'main' (or 'first.db')
 * or
-*   sqlite3_open('file:first.db?hexkey=1234abcd',&db);<=== not tested !
+*   sqlite3_open('file:first.db?hexkey=1234abcd',&db);<=== not tested !!!
 *
 * or put SQL command:
 *   PRAGMA key = 'password';         // passphrase (not key)
@@ -910,6 +911,7 @@ int sqlcodec_replayAllPages(Db* pDb)
 * When error, then return error code.
 * If error code = SQLITE_CORRUPT and database rollback failed,
 *                 then main database will not restored !!!
+* if PRAGMA rekey, then sqlite does not check for errors !!!
 */
 int sqlcodec_rekey(sqlite3 *db, int nDb, char* zKey, int nKey)
 {
@@ -926,7 +928,7 @@ int sqlcodec_rekey(sqlite3 *db, int nDb, char* zKey, int nKey)
 	//if (ctx == NULL || zKey == NULL)
 	{
 		//will create a temporary random password for backup file, format base64
-		byte base64prekey[((AES_MAX_KEY_SIZE)+2)/3*4+1];RNG_GenerateBlock(base64prekey+sizeof(base64prekey)-AES_MAX_KEY_SIZE,AES_MAX_KEY_SIZE);if(Base64Enc(base64prekey+sizeof(base64prekey)-AES_MAX_KEY_SIZE,AES_MAX_KEY_SIZE,base64prekey,AES_MAX_KEY_SIZE)==-1)return SQLITE_NOMEM;base64prekey[sizeof(base64prekey)-1]=0;
+		byte base64prekey[((AES_MAX_KEY_SIZE)+2)/3*4+1];RNG_GenerateBlock(base64prekey+sizeof(base64prekey)-AES_MAX_KEY_SIZE,AES_MAX_KEY_SIZE);if(Base64Enc(base64prekey+sizeof(base64prekey)-AES_MAX_KEY_SIZE,AES_MAX_KEY_SIZE,base64prekey,sizeof(base64prekey)-1)==-1){CODEC_TRACE(("ATTENTION rekey ERROR !!!"));return SQLITE_NOMEM;}base64prekey[sizeof(base64prekey)-1]=0;
 		//backup database to encrypted temporary file
 		rc = sqlcodec_backup(db, pDb->zDbSName, 1, "vacuum_0000.tmp", (char*)base64prekey, sizeof(base64prekey)-1);
 		//restore from backup with zKey
@@ -975,6 +977,7 @@ int sqlcodec_rekey(sqlite3 *db, int nDb, char* zKey, int nKey)
 		}
 		sqlite3OsDelete(db->pVfs, "vacuum_0000.tmp", 1);
 		memset(base64prekey, 0, sizeof(base64prekey));
+		if(rc!=SQLITE_OK){CODEC_TRACE(("ATTENTION: rekey ERROR !!!"));}
 		return rc;
 	}
 
