@@ -5,9 +5,9 @@
 * 2. Codec AES-256-GCM with a key length of 256/8 = 32 bytes and a length equal to iv, AES_BLOCK_SIZE = 16 bytes.
 * 3. The key is formed PBKDF2-SHA512 with the number of iterations
 *        from a passphrase  = (CODEC_PBKDF2_ITER + CODEC_PBKDF2_ITER_FAST)
-*        from a base64      = CODEC_PBKDF2_ITER_FAST
-* 4. The page size is fixed and equal to the value SQLITE_DEFAULT_PAGE_SIZE
-* 5. The size of the backup area on the page is equal to the amount CODEC_RESERVED_SIZE
+*        from a base64      = CODEC_PBKDF2_ITER_FAST.
+* 4. The page size is fixed and equal to the value SQLITE_DEFAULT_PAGE_SIZE.
+* 5. The size of the backup area on the page is equal to the amount CODEC_RESERVED_SIZE.
 * 6. In the reserve area stored iv length AES_BLOCK_SIZE and gcm_tag length AES_BLOCK_SIZE.
 * 
 * When you compile you need to set the following preprocessor directives:
@@ -17,10 +17,10 @@
 * SQLITE_OMIT_DEPRECATED
 * 
 * Notes:
-* PRAGMA KEY or PRAGMA REKEY sqlite does not check for errors!!! On errors silently return SQLITE_OK.
-* ) buffer is needed to encrypt (!!!you can't inplace encrypt, we need to its return, see pager_write_pagelist buffer);
-* deprecaed ---> 2) read_ctx and write_ctx are used depending on the mode (mode) in sqlite3Codec()
-* deprecaed --->    write_ctx is used to write to the journal file (this gives you the ability to encrypt with a new key)
+* - PRAGMA KEY or PRAGMA REKEY sqlite does not check for errors!!! On errors silently return SQLITE_OK;
+* - buffer is needed to encrypt (!!!you can't inplace encrypt, we need to its return, see pager_write_pagelist buffer);
+* deprecated --->  read_ctx and write_ctx are used depending on the mode (mode) in sqlite3Codec();
+* deprecated --->  write_ctx is used to write to the journal file (this gives you the ability to encrypt with a new key);
 *
 *---------------
 * examples
@@ -160,7 +160,7 @@ SQLITE_API int SQLITE_STDCALL sqlite3_key_v2(sqlite3 *db, const char *zDbName, c
 	}
 	return SQLITE_ERROR;
 }
-SQLITE_API int SQLITE_STDCALL sqlite3_key(sqlite3* db, const void* pKey, int nKey) { return sqlite3_key_v2(db, "main", pKey, nKey); }
+SQLITE_API int SQLITE_STDCALL sqlite3_key(sqlite3* db, const void* pKey, int nKey) { return sqlite3_key_v2(db, NULL, pKey, nKey); }
 
 /*
 * sqlite3_rekey_v2
@@ -173,7 +173,7 @@ SQLITE_API int SQLITE_STDCALL sqlite3_rekey_v2(sqlite3* db, const char *zDbName,
 	int nDb = zDbName ? sqlite3FindDbName(db, zDbName) : 0;
 	return sqlcodec_rekey(db, nDb, (char*)zKey, nKey);
 }
-SQLITE_API int SQLITE_STDCALL sqlite3_rekey(sqlite3 *db, void *zKey, int nKey) { return sqlite3_rekey_v2(db, "main", zKey, nKey); }
+SQLITE_API int SQLITE_STDCALL sqlite3_rekey(sqlite3 *db, void *zKey, int nKey) { return sqlite3_rekey_v2(db, NULL, zKey, nKey); }
 
 /*
 * The function is called when you execute the
