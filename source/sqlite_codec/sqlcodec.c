@@ -1,5 +1,5 @@
 /*
-*  29.10.2015 - 2016
+*  29.10.2015 - 2016 
 * 
 * 1. For encryption is used mbedtls library.
 * 2. Codec AES-256-GCM with a key length of 256/8 = 32 bytes and a length equal to iv, AES_BLOCK_SIZE = 16 bytes.
