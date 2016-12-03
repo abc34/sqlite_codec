@@ -4,8 +4,8 @@
 * 1. For encryption is used mbedtls library.
 * 2. Codec AES-256-GCM with a key length of 256/8 = 32 bytes and a length equal to iv, AES_BLOCK_SIZE = 16 bytes.
 * 3. The key is formed PBKDF2-SHA512 with the number of iterations
-*        from a passphrase    = (CODEC_PBKDF2_ITER + CODEC_PBKDF2_ITER_FAST)
-*        from a base64        = CODEC_PBKDF2_ITER_FAST
+*        from a passphrase  = (CODEC_PBKDF2_ITER + CODEC_PBKDF2_ITER_FAST)
+*        from a base64      = CODEC_PBKDF2_ITER_FAST
 * 4. The page size is fixed and equal to the value SQLITE_DEFAULT_PAGE_SIZE
 * 5. The size of the backup area on the page is equal to the amount CODEC_RESERVED_SIZE
 * 6. In the reserve area stored iv length AES_BLOCK_SIZE and gcm_tag length AES_BLOCK_SIZE.
@@ -29,7 +29,7 @@
 * to specify the passphrase need:
 *   sqlite3_key_v2(db, 'main', 'password', pass_length); //set codec for 'main' (or 'first.db')
 * or
-*   sqlite3_open('file:first.db?hexkey=1234abcd',&db);<=== need to test
+*   sqlite3_open('file:first.db?hexkey=1234abcd',&db);<=== not tested !
 *
 * or put SQL command:
 *   PRAGMA key = 'password';         // passphrase (not key)
@@ -124,8 +124,8 @@ int sqlcodec_encrypt(unsigned int page, sqlCodecCTX *ctx, byte *src, byte* dst, 
 int sqlcodec_decrypt(unsigned int page, sqlCodecCTX *ctx, byte *src, byte* dst, int size);
 void hex2bin(const byte* hex, int sz, byte* out);
 void bin2hex(const byte* bin, int sz, byte* out);
-int Base64Dec(const byte* s,int slen,byte* out);
-int Base64Enc(const byte* s,int slen, byte* out);
+int Base64Dec(const byte* s,int slen,byte* out,int outlen);
+int Base64Enc(const byte* s,int slen, byte* out,int outlen);
 int sqlcodec_copy_ctx(sqlCodecCTX** pctx_dest, sqlCodecCTX* ctx_src);
 int RNG_GenerateBlock(byte* dst, int len);
 int sqlcodec_rekey(sqlite3 *db, int nDb, char* zKey, int nKey);
@@ -472,7 +472,7 @@ int sqlcodec_set_password(sqlCodecCTX* ctx, byte* pKey, int nKey)
 	if (nKey <= 0) { CODEC_TRACE(("  error: undefined password key for sqlCodecCTX=%X", ctx)); return SQLITE_ERROR; }
 
 	//detecting pKey is base64 prekey
-	if (Base64Dec(pKey,nKey,key)!=AES_MAX_KEY_SIZE)
+	if(Base64Dec(pKey,nKey,key,AES_MAX_KEY_SIZE)!=AES_MAX_KEY_SIZE)
 	{
 		//prekey derivation from passphrase
 		mbedtls_md_context_t md_ctx; mbedtls_md_init(&md_ctx);
@@ -521,18 +521,19 @@ void bin2hex(const byte* bin, int sz, byte* out) { byte ch[17] = { "0123456789ab
 //s    - input blob (byte array),
 //slen - length of s,
 //out  - output character array (without terminating character '\0'),
-//       output length = int((slen+2)/3)*4
+//       output length = int((slen+2)/3)*4,
+//outlen - output array length,
 //returns
 //      the number of characters actually written to the output array
 //      or -1 on error.
-int Base64Enc(const unsigned char* s,int slen, unsigned char* out)
+int Base64Enc(const unsigned char* s,int slen,unsigned char* out,int outlen)
 {
 	const static unsigned char* codesym="ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
-	unsigned int c,len=slen/3;
-	if(slen<=0)return-1;
-	while(len--)
+	unsigned int c,count=slen/3;int len=(slen+2)/3*4;
+	if(slen<=0 || outlen<=0 || outlen<len)return-1;	
+	while(count--)
 	{
-		c=*s++;c<<=8;c|=*s++;c<<=8;c|=*s++;
+		c=*s++;c<<=8;c|=*s++;c<<=8;c|=*s++;					
 		*out++=codesym[(c>>18)&0x3F];
 		*out++=codesym[(c>>12)&0x3F];
 		*out++=codesym[(c>>6)&0x3F];
@@ -554,7 +555,7 @@ int Base64Enc(const unsigned char* s,int slen, unsigned char* out)
 		*out++='=';
 		*out='=';
 	}
-	return (slen+2)/3*4;
+	return len;
 }
 //decoding base64 character array to blob (byte array)
 //s    - input base64 character array (can include '\r','\n',' '),
@@ -564,10 +565,11 @@ int Base64Enc(const unsigned char* s,int slen, unsigned char* out)
 //         s_len_without_spaces - length s without space characters, divisible by 4,
 //         num_eq - the number of tail symbols '=',
 //       out may be the same as s (inplace),
+//outlen - out array length,
 //returns
 //      the number of characters actually written to the output array
 //      or -1 on error.
-int Base64Dec(const unsigned char* s,int slen,unsigned char* out)
+int Base64Dec(const unsigned char* s,int slen,unsigned char* out,int outlen)
 {
 	const static unsigned char symdec[] = {
 	127,127,127,127,127,127,127,127,127,127,127,127,127,127,127,127,
@@ -578,9 +580,9 @@ int Base64Dec(const unsigned char* s,int slen,unsigned char* out)
 	 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25,127,127,127,127,127,
 	127, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40,
 	 41, 42, 43, 44, 45, 46, 47, 48, 49, 50, 51,127,127,127,127,127};
-	unsigned int c,len=0;unsigned char a,b,a0,a1;
+	unsigned int c;int len=0;unsigned char a,b,a0,a1;
 	unsigned char* s_end=(unsigned char*)s+slen;
-	if(slen<=0)return -1;
+	if(slen<=0 || outlen<=0)return -1;
 	while(1)
 	{
 		while(s<s_end && (*s=='\r' || *s=='\n' || *s==' '))s++;if(s==s_end)break;
@@ -595,13 +597,15 @@ int Base64Dec(const unsigned char* s,int slen,unsigned char* out)
 		if(a0=='=' && a1!='=')return-1;
 		if(a0=='='||a1=='=')
 		{
+			if(len>=outlen)return-1;						
 			*out++=c>>16;len++;
-			if(a0!='='){*out++=c>>8;len++;}
+			if(a0!='='){if(len>=outlen)return-1;*out++=c>>8;len++;}
 			while(s<s_end && (*s=='\r' || *s=='\n' || *s==' '))s++;if(s==s_end)break;
 			return-1;
 		}
 		else
 		{
+			if(len+3>outlen)return-1;			
 			*out++=c>>16;
 			*out++=c>>8;
 			*out++=c;
@@ -922,7 +926,7 @@ int sqlcodec_rekey(sqlite3 *db, int nDb, char* zKey, int nKey)
 	//if (ctx == NULL || zKey == NULL)
 	{
 		//will create a temporary random password for backup file, format base64
-		byte base64prekey[((AES_MAX_KEY_SIZE)+2)/3*4+1];RNG_GenerateBlock(base64prekey+sizeof(base64prekey)-AES_MAX_KEY_SIZE,AES_MAX_KEY_SIZE);if(Base64Enc(base64prekey+sizeof(base64prekey)-AES_MAX_KEY_SIZE,AES_MAX_KEY_SIZE,base64prekey)==-1)return SQLITE_NOMEM;base64prekey[sizeof(base64prekey)-1]=0;
+		byte base64prekey[((AES_MAX_KEY_SIZE)+2)/3*4+1];RNG_GenerateBlock(base64prekey+sizeof(base64prekey)-AES_MAX_KEY_SIZE,AES_MAX_KEY_SIZE);if(Base64Enc(base64prekey+sizeof(base64prekey)-AES_MAX_KEY_SIZE,AES_MAX_KEY_SIZE,base64prekey,AES_MAX_KEY_SIZE)==-1)return SQLITE_NOMEM;base64prekey[sizeof(base64prekey)-1]=0;
 		//backup database to encrypted temporary file
 		rc = sqlcodec_backup(db, pDb->zDbSName, 1, "vacuum_0000.tmp", (char*)base64prekey, sizeof(base64prekey)-1);
 		//restore from backup with zKey
