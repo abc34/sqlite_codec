@@ -4,7 +4,7 @@
 * 1. For encryption is used mbedtls library.
 * 2. Codec AES-256-GCM with a key length of 256/8 = 32 bytes and a length equal to iv, AES_BLOCK_SIZE = 16 bytes.
 * 3. The key is formed PBKDF2-SHA512 with the number of iterations
-*        from a passphrase  = (CODEC_PBKDF2_ITER + CODEC_PBKDF2_ITER_FAST)
+*        from a passphrase  = (CODEC_PBKDF2_ITER + CODEC_PBKDF2_ITER_FAST),
 *        from a base64      = CODEC_PBKDF2_ITER_FAST.
 * 4. The page size is fixed and equal to the value SQLITE_DEFAULT_PAGE_SIZE.
 * 5. The size of the backup area on the page is equal to the amount CODEC_RESERVED_SIZE.
@@ -19,8 +19,8 @@
 * Notes:
 * - PRAGMA KEY or PRAGMA REKEY sqlite does not check for errors!!! On errors silently return SQLITE_OK;
 * - buffer is needed to encrypt (!!!you can't inplace encrypt, we need to its return, see pager_write_pagelist buffer);
-* deprecated --->  read_ctx and write_ctx are used depending on the mode (mode) in sqlite3Codec();
-* deprecated --->  write_ctx is used to write to the journal file (this gives you the ability to encrypt with a new key);
+* deprecaed ---> read_ctx and write_ctx are used depending on the mode (mode) in sqlite3Codec();
+* deprecaed ---> write_ctx is used to write to the journal file (this gives you the ability to encrypt with a new key);
 *
 *---------------
 * examples
@@ -387,7 +387,6 @@ int RNG_GenerateBlock(byte* dst, int len)
 int sqlcodec_init(sqlCodecCTX** ptr_ctx, Db *pDb, byte* pKey, int nKey)
 {
 	sqlCodecCTX* ctx = NULL;
-	sqlite3_file *fd = sqlite3PagerFile(sqlite3BtreePager(pDb->pBt));
 
 	CODEC_TRACE(("  sqlcodec_init: password='%s'", pKey));
 
@@ -397,7 +396,6 @@ int sqlcodec_init(sqlCodecCTX** ptr_ctx, Db *pDb, byte* pKey, int nKey)
 
 	//init ctx->salt
 	if (sqlite3PagerReadFileheader(sqlite3BtreePager(pDb->pBt),SQLITE_FILE_HEADER_SZ,ctx->salt) != SQLITE_OK)
-	//if (fd == NULL || fd->pMethods == NULL || sqlite3OsRead(fd, ctx->salt, SQLITE_FILE_HEADER_SZ, 0) != SQLITE_OK)
 	{
 		if (RNG_GenerateBlock(ctx->salt, SQLITE_FILE_HEADER_SZ))return SQLITE_ERROR;
 	}
