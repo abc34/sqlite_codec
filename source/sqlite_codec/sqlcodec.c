@@ -843,7 +843,7 @@ int sqlcodec_exportFull(sqlite3* db, char* fromDb, char* toDb)
 	//the contents to the temporary database.
 	rc = sqlcodec_execSqlF(db, &pzErrMsg,
 		"SELECT'INSERT INTO \"%w\".'||quote(name)"
-		"||' SELECT*FROM\"%w\".'||quote(name)"
+		"||' SELECT * FROM \"%w\".'||quote(name)"
 		"FROM \"%w\".sqlite_master "
 		"WHERE type='table' AND coalesce(rootpage,1)>0",
 		toDb, fromDb, toDb
@@ -859,7 +859,7 @@ int sqlcodec_exportFull(sqlite3* db, char* fromDb, char* toDb)
 	*/
 	rc = sqlcodec_execSqlF(db, &pzErrMsg,
 		"INSERT INTO \"%w\".sqlite_master"
-		" SELECT*FROM \"%w\".sqlite_master"
+		" SELECT * FROM \"%w\".sqlite_master"
 		" WHERE type IN('view','trigger')"
 		" OR(type='table' AND rootpage=0)",
 		toDb, fromDb
@@ -958,7 +958,7 @@ int sqlcodec_rekey(sqlite3 *db, int nDb, char* zKey, int nKey)
 				//restore old codec
 				if (ctx)
 				{
-					rc = sqlite3CodecAttach(db, nDb, "fake password--#####12345678901234567890XYZ=", 44);
+					rc = sqlite3CodecAttach(db, nDb, "###########################################=", 44);
 					if (rc == SQLITE_OK)
 					{
 						void* ctx2 = sqlite3BtreePager(pDb->pBt)->pCodec;
@@ -1058,7 +1058,7 @@ int sqlcodec_backup(sqlite3* db, char* zDbName, int bTo, char* fileName, char* z
 	if (nKey <= 0) { zKey = NULL; nKey = 0; }
 	if (fileName == NULL)return SQLITE_ERROR;
 	if (bTo == 1)sqlite3OsDelete(db->pVfs, fileName, 1);
-	zSql = sqlite3_mprintf("ATTACH '%q' AS 'vacuum_0000' KEY '%q'", fileName, zKey);
+	zSql = sqlite3_mprintf("ATTACH \"%w\" AS \"vacuum_0000\" KEY \"%w\"", fileName, zKey);
 	rc = (zSql == NULL) ? SQLITE_NOMEM : sqlite3_exec(db, zSql, NULL, 0, NULL);
 	sqlite3_free(zSql);
 	if (rc != SQLITE_OK) return rc;
@@ -1238,7 +1238,7 @@ void sqlcodec_exportFunc(sqlite3_context *context, int argc, sqlite3_value **arg
 	*/
 	rc = sqlcodec_execSqlF(db, &pzErrMsg,
 		"SELECT'INSERT INTO \"%w\".'||quote(name)"
-		"||' SELECT*FROM\"%w\".'||quote(name)"
+		"||' SELECT * FROM\"%w\".'||quote(name)"
 		"FROM \"%w\".sqlite_master "
 		"WHERE type='table' AND coalesce(rootpage,1)>0",
 		toDb, fromDb, toDb
@@ -1254,7 +1254,7 @@ void sqlcodec_exportFunc(sqlite3_context *context, int argc, sqlite3_value **arg
 	*/
 	rc = sqlcodec_execSqlF(db, &pzErrMsg,
 		"INSERT INTO \"%w\".sqlite_master"
-		" SELECT*FROM \"%w\".sqlite_master"
+		" SELECT * FROM \"%w\".sqlite_master"
 		" WHERE type IN('view','trigger')"
 		" OR(type='table' AND rootpage=0)",
 		toDb, fromDb
