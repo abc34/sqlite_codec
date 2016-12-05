@@ -17,7 +17,8 @@
 * SQLITE_OMIT_DEPRECATED
 * 
 * Notes:
-* - PRAGMA KEY or PRAGMA REKEY sqlite does not check for errors!!! On errors silently return SQLITE_OK;
+* - PRAGMA REKEY error, prepare_stmt returns error in multicommand sql;
+* - PRAGMA KEY or PRAGMA REKEY sqlite does not check for serrors!!! On errors silently return SQLITE_OK;
 * - buffer is needed to encrypt (!!!you can't inplace encrypt, we need to its return, see pager_write_pagelist buffer);
 * deprecaed ---> read_ctx and write_ctx are used depending on the mode (mode) in sqlite3Codec();
 * deprecaed ---> write_ctx is used to write to the journal file (this gives you the ability to encrypt with a new key);
@@ -796,8 +797,8 @@ int sqlcodec_exportFull(sqlite3* db, char* fromDb, char* toDb)
 	sqlite3BtreeLeaveAll(db);
 	sqlite3BtreeLeave(pTo);
 
-	//clear attached database
-	//rc = sqlcodec_clearall(db, toDb);
+	//clear attached database	
+        //rc = sqlcodec_clearall(db, toDb);
 	//if( rc!=SQLITE_OK ) return rc;
 
 	//Save the current value of the database flags so that it can be
