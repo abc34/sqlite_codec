@@ -842,7 +842,7 @@ int sqlcodec_exportFull(sqlite3* db, char* fromDb, char* toDb)
 	//an "INSERT INTO vacuum_db.xxx SELECT * FROM main.xxx;" to copy
 	//the contents to the temporary database.
 	rc = sqlcodec_execSqlF(db, &pzErrMsg,
-		"SELECT'INSERT INTO \"%w\".'||quote(name)"
+		"SELECT 'INSERT INTO \"%w\".'||quote(name)"
 		"||' SELECT * FROM \"%w\".'||quote(name)"
 		"FROM \"%w\".sqlite_master "
 		"WHERE type='table' AND coalesce(rootpage,1)>0",
@@ -1237,7 +1237,7 @@ void sqlcodec_exportFunc(sqlite3_context *context, int argc, sqlite3_value **arg
 	** the contents to the temporary database.
 	*/
 	rc = sqlcodec_execSqlF(db, &pzErrMsg,
-		"SELECT'INSERT INTO \"%w\".'||quote(name)"
+		"SELECT 'INSERT INTO \"%w\".'||quote(name)"
 		"||' SELECT * FROM \"%w\".'||quote(name)"
 		"FROM \"%w\".sqlite_master "
 		"WHERE type='table' AND coalesce(rootpage,1)>0",
