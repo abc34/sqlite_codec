@@ -717,7 +717,7 @@ int sqlcodec_execSqlF(sqlite3 *db, char **pzErrMsg, const char *zSql, ...)
   return rc;
 }
 
-#if 1
+#if 0
 /*
 *Clear attached database
 *used in sqlcodec_exportFull
@@ -791,16 +791,16 @@ int sqlcodec_exportFull(sqlite3* db, char* fromDb, char* toDb)
 	CODEC_TRACE(("start sqlcodec_exportFull: fromDb=%s, toDb=%s", fromDb, toDb));
 
 	// force clear toDb
-	//sqlite3BtreeEnter(pTo);
-	//pager_truncate(sqlite3BtreePager(pTo), 0);
-	//sqlite3BtreeEnterAll(db);
-	//sqlite3ResetOneSchema(db, nTo);
-	//sqlite3BtreeLeaveAll(db);
-	//sqlite3BtreeLeave(pTo);
+	sqlite3BtreeEnter(pTo);
+	pager_truncate(sqlite3BtreePager(pTo), 0);
+	sqlite3BtreeEnterAll(db);
+	sqlite3ResetOneSchema(db, nTo);
+	sqlite3BtreeLeaveAll(db);
+	sqlite3BtreeLeave(pTo);
 
 	//clear attached database
-	rc = sqlcodec_clearall(db, toDb);
-	if( rc!=SQLITE_OK ) return rc;
+	//rc = sqlcodec_clearall(db, toDb);
+	//if( rc!=SQLITE_OK ) return rc;
 
 	// Save the current value of the database flags so that it can be
 	// restored before returning. Then set the writable-schema flag, and
@@ -1187,8 +1187,8 @@ void sqlcodec_exportFunc(sqlite3_context *context, int argc, sqlite3_value **arg
 	sqlite3BtreeLeave(pTo);
 
 
-	//!!! this not work, returns error: table in the database is locked 
-	//rc = sqlcodec_clearall(db, toDb);
+	//!!! this not work, returns error: table in the database is locked, try sqlite3BtreeEnter(pTo) block	
+    //rc = sqlcodec_clearall(db, toDb);
 	//if( rc!=SQLITE_OK )
 	//{
 	//	sqlite3SetString(&pzErrMsg, db, "cannot Export - error while cleaning the attached database");
