@@ -17,7 +17,7 @@
 * SQLITE_OMIT_DEPRECATED
 * 
 * Notes:
-* - PRAGMA REKEY error, prepare_stmt returns error in multicommand sql;
+* - PRAGMA REKEY error, sqlite3prepare returns error in multicommand sql;
 * - PRAGMA KEY or PRAGMA REKEY sqlite does not check for serrors!!! On errors silently return SQLITE_OK;
 * - buffer is needed to encrypt (!!!you can't inplace encrypt, we need to its return, see pager_write_pagelist buffer);
 * deprecaed ---> read_ctx and write_ctx are used depending on the mode (mode) in sqlite3Codec();
@@ -244,7 +244,7 @@ int sqlite3CodecAttach(sqlite3* db, int nDb, const void* zKey, int nKey)
 		//--TODO: in the future you can make a change pagesize (nReserve will remain unchanged)
 		//setting pagesize и nReserve в db
 		pDb->pBt->pBt->btsFlags  &= ~BTS_PAGESIZE_FIXED;//before sqlite3BtreeSetPageSize unset the BTS_PAGESIZE_FIXED flag
-		sqlite3BtreeSetPageSize(pDb->pBt, ctx->page_size, CODEC_RESERVED_SIZE, 0);//iFix=0, else VACUUM error: see sqlite3BtreeSetPageSize()
+		sqlite3BtreeSetPageSize(pDb->pBt, ctx->page_size, CODEC_RESERVED_SIZE, 0);//iFix=0, otherwise VACUUM error: see sqlite3BtreeSetPageSize()
 		//force secure delete. This has the benefit of wiping internal data when deleted
 		//and also ensures that all pages are written to disk (i.e. not skipped by
 		//sqlite3PagerDontWrite optimizations)
