@@ -17,8 +17,7 @@
 * SQLITE_OMIT_DEPRECATED
 * 
 * Notes:
-* - PRAGMA REKEY error, sqlite3prepare returns error in multicommand sql;
-* - PRAGMA KEY or PRAGMA REKEY sqlite does not check for serrors!!! On errors silently return SQLITE_OK;
+* - PRAGMA KEY or PRAGMA REKEY sqlite does not check for errors!!! On errors silently return SQLITE_OK;
 * - buffer is needed to encrypt (!!!you can't inplace encrypt, we need to its return, see pager_write_pagelist buffer);
 * deprecaed ---> read_ctx and write_ctx are used depending on the mode (mode) in sqlite3Codec();
 * deprecaed ---> write_ctx is used to write to the journal file (this gives you the ability to encrypt with a new key);
@@ -716,7 +715,7 @@ int sqlcodec_execSqlF(sqlite3 *db, char **pzErrMsg, const char *zSql, ...)
   return rc;
 }
 
-#if 0
+#if 1
 /*
 *Clear attached database
 *used in sqlcodec_exportFull
@@ -789,21 +788,21 @@ int sqlcodec_exportFull(sqlite3* db, char* fromDb, char* toDb)
 
 	CODEC_TRACE(("start sqlcodec_exportFull: fromDb=%s, toDb=%s", fromDb, toDb));
 
-	//force clear toDb
-	sqlite3BtreeEnter(pTo);
-	pager_truncate(sqlite3BtreePager(pTo), 0);
-	sqlite3BtreeEnterAll(db);
-	sqlite3ResetOneSchema(db, nTo);
-	sqlite3BtreeLeaveAll(db);
-	sqlite3BtreeLeave(pTo);
+	// force clear toDb
+	//sqlite3BtreeEnter(pTo);
+	//pager_truncate(sqlite3BtreePager(pTo), 0);
+	//sqlite3BtreeEnterAll(db);
+	//sqlite3ResetOneSchema(db, nTo);
+	//sqlite3BtreeLeaveAll(db);
+	//sqlite3BtreeLeave(pTo);
 
-	//clear attached database	
-        //rc = sqlcodec_clearall(db, toDb);
-	//if( rc!=SQLITE_OK ) return rc;
+	//clear attached database
+	rc = sqlcodec_clearall(db, toDb);
+	if( rc!=SQLITE_OK ) return rc;
 
-	//Save the current value of the database flags so that it can be
-	//restored before returning. Then set the writable-schema flag, and
-	//disable CHECK and foreign key constraints.
+	// Save the current value of the database flags so that it can be
+	// restored before returning. Then set the writable-schema flag, and
+	// disable CHECK and foreign key constraints.
 	saved_flags = db->flags;
 	saved_nChange = db->nChange;
 	saved_nTotalChange = db->nTotalChange;
@@ -820,8 +819,8 @@ int sqlcodec_exportFull(sqlite3* db, char* fromDb, char* toDb)
 	sqlite3BtreeSetSpillSize(pTo, sqlite3BtreeSetSpillSize(pFrom,0));
 	sqlite3BtreeSetPagerFlags(pTo, PAGER_SYNCHRONOUS_OFF|PAGER_CACHESPILL);
 
-	//Query the schema of the main database. Create a mirror schema
-	//in the temporary database.
+	// Query the schema of the fromDb database. Create a mirror schema
+	// in the temporary database.
 	db->init.iDb = nTo; /* force new CREATE statements into toDb */
 	rc = sqlcodec_execSqlF(db, &pzErrMsg,
 		"SELECT sql FROM \"%w\".sqlite_master"
@@ -838,9 +837,9 @@ int sqlcodec_exportFull(sqlite3* db, char* fromDb, char* toDb)
 	if( rc!=SQLITE_OK ) goto end_of_export;
 	db->init.iDb = 0;
 
-	//Loop through the tables in the main database. For each, do
-	//an "INSERT INTO vacuum_db.xxx SELECT * FROM main.xxx;" to copy
-	//the contents to the temporary database.
+	// Loop through the tables in the main database. For each, do
+	// an "INSERT INTO vacuum_db.xxx SELECT * FROM main.xxx;" to copy
+	// the contents to the temporary database.
 	rc = sqlcodec_execSqlF(db, &pzErrMsg,
 		"SELECT 'INSERT INTO \"%w\".'||quote(name)"
 		"||' SELECT * FROM \"%w\".'||quote(name)"
@@ -852,11 +851,10 @@ int sqlcodec_exportFull(sqlite3* db, char* fromDb, char* toDb)
 	db->flags &= ~SQLITE_Vacuum;
 	if( rc!=SQLITE_OK ) goto end_of_export;
 
-	/* Copy the triggers, views, and virtual tables from the main database
-	** over to the temporary database.  None of these objects has any
-	** associated storage, so all we have to do is copy their entries
-	** from the SQLITE_MASTER table.
-	*/
+	// Copy the triggers, views, and virtual tables from the main database
+	// over to the temporary database.  None of these objects has any
+	// associated storage, so all we have to do is copy their entries
+	// from the SQLITE_MASTER table.
 	rc = sqlcodec_execSqlF(db, &pzErrMsg,
 		"INSERT INTO \"%w\".sqlite_master"
 		" SELECT * FROM \"%w\".sqlite_master"
@@ -949,6 +947,10 @@ int sqlcodec_rekey(sqlite3 *db, int nDb, char* zKey, int nKey)
 					rc = sqlcodec_backup(db, pDb->zDbSName, 2, "vacuum_0000.tmp", (char*)base64prekey, sizeof(base64prekey)-1);
 					if (rc != SQLITE_OK)continue;
 					if (ctx) { sqlite3FreeCodecArg(ctx); }//free ctx
+					//reset shema, otherwise after rekey prepare returns error: no such table (table is VIEW AS SELECT * FROM TEST)
+					sqlite3BtreeEnterAll(db);
+					sqlite3ResetOneSchema(db, nDb);
+					sqlite3BtreeLeaveAll(db);
 					break;
 				}
 
@@ -1058,7 +1060,7 @@ int sqlcodec_backup(sqlite3* db, char* zDbName, int bTo, char* fileName, char* z
 	if (nKey <= 0) { zKey = NULL; nKey = 0; }
 	if (fileName == NULL)return SQLITE_ERROR;
 	if (bTo == 1)sqlite3OsDelete(db->pVfs, fileName, 1);
-	zSql = sqlite3_mprintf("ATTACH \"%w\" AS \"vacuum_0000\" KEY \"%w\"", fileName, zKey);
+	zSql = sqlite3_mprintf("ATTACH \"%w\" AS 'vacuum_0000' KEY \"%w\"", fileName, zKey);
 	rc = (zSql == NULL) ? SQLITE_NOMEM : sqlite3_exec(db, zSql, NULL, 0, NULL);
 	sqlite3_free(zSql);
 	if (rc != SQLITE_OK) return rc;
@@ -1181,7 +1183,9 @@ void sqlcodec_exportFunc(sqlite3_context *context, int argc, sqlite3_value **arg
 	sqlite3ResetOneSchema(db, nTo);
 	sqlite3BtreeLeaveAll(db);
 	sqlite3BtreeLeave(pTo);
-	
+
+
+	//!!! this not work, returns error: table in the database is locked 
 	//rc = sqlcodec_clearall(db, toDb);
 	//if( rc!=SQLITE_OK )
 	//{
@@ -1196,9 +1200,9 @@ void sqlcodec_exportFunc(sqlite3_context *context, int argc, sqlite3_value **arg
 
 
 
-	/* Save the current value of the database flags so that it can be
-	** restored before returning. Then set the writable-schema flag, and
-	** disable CHECK and foreign key constraints.  */
+	// Save the current value of the database flags so that it can be
+	// restored before returning. Then set the writable-schema flag, and
+	// disable CHECK and foreign key constraints.  */
 	saved_flags = db->flags;
 	saved_nChange = db->nChange;
 	saved_nTotalChange = db->nTotalChange;
@@ -1213,9 +1217,8 @@ void sqlcodec_exportFunc(sqlite3_context *context, int argc, sqlite3_value **arg
 	sqlite3BtreeSetPagerFlags(pTo, PAGER_SYNCHRONOUS_OFF|PAGER_CACHESPILL);
 
 
-	/* Query the schema of the main database. Create a mirror schema
-	** in the temporary database.
-	*/
+	// Query the schema of the main database. Create a mirror schema
+	// in the temporary database.
 	db->init.iDb = nTo; /* force new CREATE statements into toDb */
 	rc = sqlcodec_execSqlF(db, &pzErrMsg,
 		"SELECT sql FROM \"%w\".sqlite_master"
@@ -1232,10 +1235,9 @@ void sqlcodec_exportFunc(sqlite3_context *context, int argc, sqlite3_value **arg
 	if( rc!=SQLITE_OK ) goto end_of_export;
 	db->init.iDb = 0;
 
-	/* Loop through the tables in the main database. For each, do
-	** an "INSERT INTO vacuum_db.xxx SELECT * FROM main.xxx;" to copy
-	** the contents to the temporary database.
-	*/
+	// Loop through the tables in the main database. For each, do
+	// an "INSERT INTO vacuum_db.xxx SELECT * FROM main.xxx;" to copy
+	// the contents to the temporary database.
 	rc = sqlcodec_execSqlF(db, &pzErrMsg,
 		"SELECT 'INSERT INTO \"%w\".'||quote(name)"
 		"||' SELECT * FROM \"%w\".'||quote(name)"
@@ -1247,11 +1249,10 @@ void sqlcodec_exportFunc(sqlite3_context *context, int argc, sqlite3_value **arg
 	db->flags &= ~SQLITE_Vacuum;
 	if( rc!=SQLITE_OK ) goto end_of_export;
 
-	/* Copy the triggers, views, and virtual tables from the main database
-	** over to the temporary database.  None of these objects has any
-	** associated storage, so all we have to do is copy their entries
-	** from the SQLITE_MASTER table.
-	*/
+	// Copy the triggers, views, and virtual tables from the main database
+	// over to the temporary database.  None of these objects has any
+	// associated storage, so all we have to do is copy their entries
+	// from the SQLITE_MASTER table.
 	rc = sqlcodec_execSqlF(db, &pzErrMsg,
 		"INSERT INTO \"%w\".sqlite_master"
 		" SELECT * FROM \"%w\".sqlite_master"
@@ -1286,12 +1287,12 @@ end_of_export:
 
 
 
-//Additional function need for firefox addon 
-//SQLITE_API int SQLITE_STDCALL strlen1(char* s, int buflen) { return strlen(s); }
-//SQLITE_API int SQLITE_STDCALL memcpy1(byte* pDst, rsize_t pDstSize, byte* pSrc, rsize_t _MaxCount) { return memcpy_s(pDst,pDstSize,pSrc,_MaxCount); }
 
 
 #ifdef OMIT_CODEC_DEPRECATED
+//Additional function 
+//SQLITE_API int SQLITE_STDCALL strlen1(char* s, int buflen) { return strlen(s); }
+//SQLITE_API int SQLITE_STDCALL memcpy1(byte* pDst, rsize_t pDstSize, byte* pSrc, rsize_t _MaxCount) { return memcpy_s(pDst,pDstSize,pSrc,_MaxCount); }
 #endif //OMIT_CODEC_DEPRECATED
 
 
