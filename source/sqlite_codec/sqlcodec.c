@@ -513,9 +513,9 @@ int sqlcodec_copy_ctx(sqlCodecCTX** pctx_dest, sqlCodecCTX* ctx_src)
 /*
 * Auxillary functions
 */
-int hexsym2int(char c) { return (c >= '0' && c <= '9') ? (c)-'0' : (c >= 'A'&& c <= 'F') ? (c)-'A' + 10 : (c >= 'a' && c <= 'f') ? (c)-'a' + 10 : 0; }
-void hex2bin(const byte* hex, int sz, byte* out) { int len = sz - (sz & 1), i; for (i = 0; i < len; i += 2) { out[i / 2] = (hexsym2int(hex[i]) << 4) | hexsym2int(hex[i + 1]); }if (sz & 1)out[i / 2] = hexsym2int(hex[i]); }
-void bin2hex(const byte* bin, int sz, byte* out) { byte ch[17] = { "0123456789abcdef" };int i, c; for (i = 0; i < sz; i++) { c = (byte)bin[i]; out[i * 2 + 0] = ch[(c >> 4) & 0xF]; out[i * 2 + 1] = ch[c & 0xF]; } }
+//int hexsym2int(char c) { return (c >= '0' && c <= '9') ? (c)-'0' : (c >= 'A'&& c <= 'F') ? (c)-'A' + 10 : (c >= 'a' && c <= 'f') ? (c)-'a' + 10 : 0; }
+//void hex2bin(const byte* hex, int sz, byte* out) { int len = sz - (sz & 1), i; for (i = 0; i < len; i += 2) { out[i / 2] = (hexsym2int(hex[i]) << 4) | hexsym2int(hex[i + 1]); }if (sz & 1)out[i / 2] = hexsym2int(hex[i]); }
+//void bin2hex(const byte* bin, int sz, byte* out) { byte ch[17] = { "0123456789abcdef" };int i, c; for (i = 0; i < sz; i++) { c = (byte)bin[i]; out[i * 2 + 0] = ch[(c >> 4) & 0xF]; out[i * 2 + 1] = ch[c & 0xF]; } }
 //encoding blob to base64 character array
 //s    - input blob (byte array),
 //slen - length of s,
@@ -624,14 +624,15 @@ int Base64Dec(const unsigned char* s,int slen,unsigned char* out,int outlen)
 */
 int sqlcodec_encrypt(unsigned int page, sqlCodecCTX *ctx, byte *src, byte* dst, int size)
 {
-	int len, rc = 0, offset = SQLITE_FILE_HEADER_SZ; size_t olen;
+	int len, rc, offset = SQLITE_FILE_HEADER_SZ; size_t olen;
 	//if (ctx->ctx.key_bitlen == 0){ memcpy(dst, src, size); return 0; } //nothing to encrypt
 	if (page == 1) { memcpy(dst, ctx->salt, SQLITE_FILE_HEADER_SZ); src += offset; dst += offset; size -= offset; }
 	len = size - CODEC_RESERVED_SIZE;
-	rc |= RNG_GenerateBlock(dst + len, AES_IV_SIZE);
+	rc  = RNG_GenerateBlock(dst + len, AES_IV_SIZE);
 	rc |= mbedtls_cipher_auth_encrypt(&ctx->ctx, dst + len, AES_IV_SIZE, (byte*)&page, sizeof(page), src, len, dst, &olen, dst + len + AES_IV_SIZE, GCM_TAG_SIZE);
-	if (rc)memset(dst, 0, size);//clear dst on error
-	CODEC_TRACE(("  encrypt %s: page=%i, size=%i", rc==0?"OK":"ERROR",page, size));
+	if (rc){ memset(dst, 0, size);rc = SQLITE_ERROR; }//clear dst on error
+    else { rc = SQLITE_OK; }	 	
+    CODEC_TRACE(("  encrypt %s: page=%i, size=%i", rc==0?"OK":"ERROR",page, size));
 	return rc;
 }
 /*
@@ -639,14 +640,15 @@ int sqlcodec_encrypt(unsigned int page, sqlCodecCTX *ctx, byte *src, byte* dst, 
 */
 int sqlcodec_decrypt(unsigned int page, sqlCodecCTX *ctx, byte *src, byte* dst, int size)
 {
-	int len, rc = 0, offset = SQLITE_FILE_HEADER_SZ; size_t olen;
+	int len, rc, offset = SQLITE_FILE_HEADER_SZ; size_t olen;
 	//if (ctx->ctx.key_bitlen == 0) { return 0; }
-	if (page == 1) { memcpy(dst, zMagicHeader, SQLITE_FILE_HEADER_SZ); src += offset; dst += offset; size -= offset; }
+	if (page == 1) { memcpy(dst, zMagicHeader, offset); src += offset; dst += offset; size -= offset; }
 	len = size - CODEC_RESERVED_SIZE;
 	rc = mbedtls_cipher_auth_decrypt(&ctx->ctx, dst + len, AES_IV_SIZE, (byte*)&page, sizeof(page), src, len, dst, &olen, dst + len + AES_IV_SIZE, GCM_TAG_SIZE);
 	memset(src+len, 0, CODEC_RESERVED_SIZE);
-	if (rc)memset(dst, 0, size);
-	CODEC_TRACE(("  decrypt %s: page=%i, size=%i", rc == 0 ? "OK" : "ERROR", page, size));
+	if (rc){ memset(dst, 0, offset);rc = SQLITE_NOTADB; }		
+    else { rc=SQLITE_OK; }  	
+    CODEC_TRACE(("  decrypt %s: page=%i, size=%i", rc == 0 ? "OK" : "ERROR", page, size));
 	return rc;
 }
 
