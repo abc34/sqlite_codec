@@ -50,11 +50,18 @@
 *   ATTACH DATABASE 'new_file.db' AS 'newdb' KEY 'pass';   - attaching encrypted database, used passphrase
 *   ATTACH DATABASE 'new_file.db' AS 'newdb' KEY 'abc...z='; - attaching encrypted database, used base64 prekey
 * or
-*   SELECT sqlite_attach('dbfile','alias_name','passphrase');
+*   SELECT attach('dbfile','alias_name','passphrase');
 * and
 *   DETACH DATABASE 'newdb';
 * or
-*   SELECT sqlite_detach('newdb')
+*   SELECT detach('newdb')
+*
+* Alternate can 
+*   SELECT key(x,y)
+*   SELECT rekey(x,y)
+*   SELECT attach(x,y,z)
+*   SELECT detach(x)
+*   SELECT export(x,y)
 *---------------
 */
 
