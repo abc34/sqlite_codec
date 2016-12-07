@@ -51,6 +51,10 @@
 *   ATTACH DATABASE 'new_file.db' AS 'newdb' KEY 'abc...z='; - attaching encrypted database, used base64 prekey
 * or
 *   SELECT sqlite_attach('dbfile','alias_name','passphrase');
+* and
+*   DETACH DATABASE 'newdb';
+* or
+*   SELECT sqlite_detach('newdb')
 *---------------
 */
 
@@ -620,7 +624,7 @@ int Base64Dec(const unsigned char* s,int slen,unsigned char* out,int outlen)
 
 /*
 * Encryption function
-* On sucess returns 0, otherwise not 0
+* On sucess returns 0, otherwise non-zero
 */
 int sqlcodec_encrypt(unsigned int page, sqlCodecCTX *ctx, byte *src, byte* dst, int size)
 {
@@ -636,7 +640,7 @@ int sqlcodec_encrypt(unsigned int page, sqlCodecCTX *ctx, byte *src, byte* dst, 
 }
 /*
 * Decryption function
-* On sucess returns 0, otherwise not 0
+* On sucess returns 0, otherwise non-zero
 */
 int sqlcodec_decrypt(unsigned int page, sqlCodecCTX *ctx, byte *src, byte* dst, int size)
 {
@@ -1132,9 +1136,9 @@ int sqlcodec_backup(sqlite3* db, char* zDbName, int bTo, char* fileName, char* z
 * or
 * ATTACH 'fileDb.sqlite' AS 'newDb'
 * then
-* SELECT export('newDb');
+* SELECT export('fromDb','newDb');
 */
-void sqlcodec_exportFunc(sqlite3_context *context, int argc, sqlite3_value **argv)
+void sqlcodec_export_function(sqlite3_context *context, int argc, sqlite3_value **argv)
 {
 	int rc = SQLITE_OK;     /* Return code from service routines */
 	Btree *pFrom;           /* The database being vacuumed */
@@ -1150,20 +1154,20 @@ void sqlcodec_exportFunc(sqlite3_context *context, int argc, sqlite3_value **arg
 	sqlite3 *db = sqlite3_context_db_handle(context);
 
 	if (!db->autoCommit) {
-		sqlite3SetString(&pzErrMsg, db, "cannot Export from within a transaction");
+		sqlite3SetString(&pzErrMsg, db, "cannot export from within a transaction");
 		sqlite3_result_error(context, pzErrMsg, -1);
 		sqlite3DbFree(db, pzErrMsg);
 		return;
 	}
 	if (db->nVdbeActive > 1) {
-		sqlite3SetString(&pzErrMsg, db, "cannot Export - SQL statements in progress");
+		sqlite3SetString(&pzErrMsg, db, "cannot export - SQL statements in progress");
 		sqlite3_result_error(context, pzErrMsg, -1);
 		sqlite3DbFree(db, pzErrMsg);
 		return;
 	}
 
-	fromDb="main";
-	toDb = (char*)sqlite3_value_text(argv[0]);
+	fromDb=(char*)sqlite3_value_text(argv[0]);
+	toDb = (char*)sqlite3_value_text(argv[1]);
 	nFrom = sqlite3FindDbName(db, fromDb);
 	nTo = sqlite3FindDbName(db, toDb);
 
@@ -1197,14 +1201,9 @@ void sqlcodec_exportFunc(sqlite3_context *context, int argc, sqlite3_value **arg
 	//	return;
 	//}
 
-
-
-
-
-
 	// Save the current value of the database flags so that it can be
 	// restored before returning. Then set the writable-schema flag, and
-	// disable CHECK and foreign key constraints.  */
+	// disable CHECK and foreign key constraints.
 	saved_flags = db->flags;
 	saved_nChange = db->nChange;
 	saved_nTotalChange = db->nTotalChange;
@@ -1263,7 +1262,6 @@ void sqlcodec_exportFunc(sqlite3_context *context, int argc, sqlite3_value **arg
 		toDb, fromDb
 	);
 
-
 end_of_export:
 	db->init.iDb = 0;
 	db->flags = saved_flags;
@@ -1284,7 +1282,217 @@ end_of_export:
 		}
 	}
 }
+/*
+* Implementation of an "key" function that allows set new key to database
+* without re-encryption, usually right after opening the database.
+*     SELECT key(x, y);
+*  x - database name,
+*  y - database key.
+* It's the same as PRAGMA key.
+* SELECT key('dbname','');         //drop codec and key if it was installed
+* SELECT key('dbname','password'); //set new key by passphrase
+* SELECT key('dbname','ABC...Z='); //set new key by base64 prekey
+*/
+void sqlcodec_key_function(sqlite3_context *context, int argc, sqlite3_value **argv)
+{
+	int rc = SQLITE_OK;     /* Return code from service routines */
+	char *pzErrMsg = NULL;
+	char *dbName;int nTo;
+	void *pKey=NULL;int nKey=0;
 
+	sqlite3 *db = sqlite3_context_db_handle(context);
+
+	if (!db->autoCommit) {
+		sqlite3SetString(&pzErrMsg, db, "cannot key from within a transaction");
+		sqlite3_result_error(context, pzErrMsg, -1);
+		sqlite3DbFree(db, pzErrMsg);
+		return;
+	}
+	if (db->nVdbeActive > 1) {
+		sqlite3SetString(&pzErrMsg, db, "cannot key - SQL statements in progress");
+		sqlite3_result_error(context, pzErrMsg, -1);
+		sqlite3DbFree(db, pzErrMsg);
+		return;
+	}
+
+	dbName = (char*)sqlite3_value_text(argv[0]);
+	pKey = (void*)sqlite3_value_text(argv[1]);
+	nKey = sqlite3_value_bytes(argv[1]);
+	nTo = sqlite3FindDbName(db, dbName);
+
+	if (nTo<0 || nKey<0) {
+		sqlite3SetString(&pzErrMsg, db, "cannot key - database error");
+		sqlite3_result_error(context, pzErrMsg, -1);
+		sqlite3DbFree(db, pzErrMsg);
+		return;
+	}
+
+	rc = sqlite3_key_v2(db, dbName, pKey, nKey);
+	if(rc != SQLITE_OK)
+		sqlite3_result_error(context, sqlite3ErrStr(rc), -1);
+}
+/*
+* Implementation of an "rekey" function that allows set new key to database
+* with full re-encryption.
+*     SELECT rekey(x, y);
+*  x - database name,
+*  y - database key.
+* It's the same as PRAGMA rekey.
+* SELECT rekey('dbname','');         //unencrypt if it was installed
+* SELECT rekey('dbname','password'); //re-encrypt by passphrase
+* SELECT rekey('dbname','ABC...Z='); //re-encrypt by base64 prekey
+*/
+void sqlcodec_rekey_function(sqlite3_context *context, int argc, sqlite3_value **argv)
+{
+	int rc = SQLITE_OK;     /* Return code from service routines */
+	char *pzErrMsg = NULL;
+	char *dbName;int nTo;
+	void *pKey=NULL;int nKey=0;
+
+	sqlite3 *db = sqlite3_context_db_handle(context);
+
+	if (!db->autoCommit) {
+		sqlite3SetString(&pzErrMsg, db, "cannot rekey from within a transaction");
+		sqlite3_result_error(context, pzErrMsg, -1);
+		sqlite3DbFree(db, pzErrMsg);
+		return;
+	}
+	if (db->nVdbeActive > 1) {
+		sqlite3SetString(&pzErrMsg, db, "cannot rekey - SQL statements in progress");
+		sqlite3_result_error(context, pzErrMsg, -1);
+		sqlite3DbFree(db, pzErrMsg);
+		return;
+	}
+
+	dbName = (char*)sqlite3_value_text(argv[0]);
+	pKey = (void*)sqlite3_value_text(argv[1]);
+	nKey = sqlite3_value_bytes(argv[1]);
+	nTo = sqlite3FindDbName(db, dbName);
+
+	if (nTo<0 || nKey<0) {
+		sqlite3SetString(&pzErrMsg, db, "cannot rekey - database error");
+		sqlite3_result_error(context, pzErrMsg, -1);
+		sqlite3DbFree(db, pzErrMsg);
+		return;
+	}
+
+	rc = sqlite3_rekey_v2(db, dbName, pKey, nKey);
+	if(rc != SQLITE_OK)
+		sqlite3_result_error(context, sqlite3ErrStr(rc), -1);
+}
+/*
+* Implementation of an "attach" function.
+*     SELECT attach(x, y, z);
+*  x - database file name,
+*  y - database name,
+*  z - database key.
+* It's the same as ATTACH DATABASE x AS y KEY z.
+* SELECT attach('file','dbname','');         //without key
+* SELECT attach('file','dbname','password'); //with passphrase
+* SELECT attach('file','dbname','ABC...Z='); //with base64 prekey
+*/
+void sqlcodec_attach_function(sqlite3_context *context, int argc, sqlite3_value **argv)
+{
+	int rc = SQLITE_OK;     /* Return code from service routines */
+	char *pzErrMsg = NULL;
+	char *dbFile,*dbName;
+	void *pKey=NULL;int nKey=0;
+
+	sqlite3 *db = sqlite3_context_db_handle(context);
+
+	if (!db->autoCommit) {
+		sqlite3SetString(&pzErrMsg, db, "cannot attach from within a transaction");
+		sqlite3_result_error(context, pzErrMsg, -1);
+		sqlite3DbFree(db, pzErrMsg);
+		return;
+	}
+	if (db->nVdbeActive > 1) {
+		sqlite3SetString(&pzErrMsg, db, "cannot attach - SQL statements in progress");
+		sqlite3_result_error(context, pzErrMsg, -1);
+		sqlite3DbFree(db, pzErrMsg);
+		return;
+	}
+
+	dbFile = (char*)sqlite3_value_text(argv[0]);
+	dbName = (char*)sqlite3_value_text(argv[1]);
+	pKey = (void*)sqlite3_value_text(argv[2]);
+	nKey = sqlite3_value_bytes(argv[2]);
+
+	if (nKey<0) {
+		sqlite3SetString(&pzErrMsg, db, "cannot attach - database error");
+		sqlite3_result_error(context, pzErrMsg, -1);
+		sqlite3DbFree(db, pzErrMsg);
+		return;
+	}
+
+	rc = sqlcodec_execSqlF(db, &pzErrMsg,
+		"ATTACH DATABASE \"%w\" AS \"%w\" KEY \"%w\" ",
+		dbFile, dbName, pKey
+	);
+
+	if(rc != SQLITE_OK)
+		sqlite3_result_error(context, sqlite3ErrStr(rc), -1);
+}
+/*
+* Implementation of an "detach" function.
+*     SELECT detach(x);
+*  x - database name.
+* It's the same as DETACH DATABASE x.
+*/
+void sqlcodec_detach_function(sqlite3_context *context, int argc, sqlite3_value **argv)
+{
+	int rc = SQLITE_OK;     /* Return code from service routines */
+	char *pzErrMsg = NULL;
+	char *dbName;
+
+	sqlite3 *db = sqlite3_context_db_handle(context);
+
+	if (!db->autoCommit) {
+		sqlite3SetString(&pzErrMsg, db, "cannot detach from within a transaction");
+		sqlite3_result_error(context, pzErrMsg, -1);
+		sqlite3DbFree(db, pzErrMsg);
+		return;
+	}
+	if (db->nVdbeActive > 1) {
+		sqlite3SetString(&pzErrMsg, db, "cannot detach - SQL statements in progress");
+		sqlite3_result_error(context, pzErrMsg, -1);
+		sqlite3DbFree(db, pzErrMsg);
+		return;
+	}
+
+	dbName = (char*)sqlite3_value_text(argv[0]);
+
+	rc = sqlcodec_execSqlF(db, &pzErrMsg,
+		"DETACH DATABASE \"%w\" ",
+		dbName
+	);
+
+	if(rc != SQLITE_OK)
+		sqlite3_result_error(context, sqlite3ErrStr(rc), -1);
+}
+
+
+
+
+
+
+
+
+//Call this function after open database to register user functions
+SQLITE_API int SQLITE_STDCALL sqlite3codec_register_user_functions(sqlite3 *db)
+{
+	int rc = SQLITE_ERROR;
+	if (db)
+	{
+		rc  = 0;
+		rc |= sqlite3_create_function(db, "export", 2, SQLITE_UTF8, NULL, &sqlcodec_export_function, NULL, NULL);
+		rc |= sqlite3_create_function(db, "key",    2, SQLITE_UTF8, NULL, &sqlcodec_key_function, NULL, NULL);
+		rc |= sqlite3_create_function(db, "rekey",  2, SQLITE_UTF8, NULL, &sqlcodec_rekey_function, NULL, NULL);
+		rc |= sqlite3_create_function(db, "attach",  3, SQLITE_UTF8, NULL, &sqlcodec_attach_function, NULL, NULL);
+		rc |= sqlite3_create_function(db, "detach",  1, SQLITE_UTF8, NULL, &sqlcodec_detach_function, NULL, NULL);
+	}
+	return rc;
+}
 
 
 
