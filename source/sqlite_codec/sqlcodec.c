@@ -408,7 +408,6 @@ int sqlcodec_init(sqlCodecCTX** ptr_ctx, Db *pDb, byte* pKey, int nKey)
 	//init ctx->buffer and set page_size = SQLITE_DEFAULT_PAGE_SIZE
 	ctx->page_size = sqlite3BtreeGetPageSize(pDb->pBt);
 	if (sqlcodec_set_buffer(ctx, ctx->page_size) != SQLITE_OK)return SQLITE_ERROR;
-
 	return SQLITE_OK;
 }
 /*
@@ -621,34 +620,34 @@ int Base64Dec(const unsigned char* s,int slen,unsigned char* out,int outlen)
 
 /*
 * Encryption function
+* On sucess returns 0, otherwise not 0
 */
 int sqlcodec_encrypt(unsigned int page, sqlCodecCTX *ctx, byte *src, byte* dst, int size)
 {
-	int len, rc, offset = SQLITE_FILE_HEADER_SZ; size_t olen;
+	int len, rc; const int offset = SQLITE_FILE_HEADER_SZ; size_t olen;
 	//if (ctx->ctx.key_bitlen == 0){ memcpy(dst, src, size); return 0; } //nothing to encrypt
-	if (page == 1) { memcpy(dst, ctx->salt, SQLITE_FILE_HEADER_SZ); src += offset; dst += offset; size -= offset; }
+	if (page == 1) { memcpy(dst, ctx->salt, offset); src += offset; dst += offset; size -= offset; }
 	len = size - CODEC_RESERVED_SIZE;
 	rc  = RNG_GenerateBlock(dst + len, AES_IV_SIZE);
 	rc |= mbedtls_cipher_auth_encrypt(&ctx->ctx, dst + len, AES_IV_SIZE, (byte*)&page, sizeof(page), src, len, dst, &olen, dst + len + AES_IV_SIZE, GCM_TAG_SIZE);
-	if (rc){ memset(dst, 0, size);rc = SQLITE_ERROR; }//clear dst on error
-    else { rc = SQLITE_OK; }	 	
-    CODEC_TRACE(("  encrypt %s: page=%i, size=%i", rc==0?"OK":"ERROR",page, size));
+	if (rc != 0){ if(page == 1){dst-=offset;size+=offset;} memset(dst, 0, size); }
+	CODEC_TRACE(("  encrypt %s: page=%i, size=%i", rc==0?"OK":"ERROR", page, size));
 	return rc;
 }
 /*
 * Decryption function
+* On sucess returns 0, otherwise not 0
 */
 int sqlcodec_decrypt(unsigned int page, sqlCodecCTX *ctx, byte *src, byte* dst, int size)
 {
-	int len, rc, offset = SQLITE_FILE_HEADER_SZ; size_t olen;
+	int len, rc; const int offset = SQLITE_FILE_HEADER_SZ; size_t olen;
 	//if (ctx->ctx.key_bitlen == 0) { return 0; }
 	if (page == 1) { memcpy(dst, zMagicHeader, offset); src += offset; dst += offset; size -= offset; }
 	len = size - CODEC_RESERVED_SIZE;
 	rc = mbedtls_cipher_auth_decrypt(&ctx->ctx, dst + len, AES_IV_SIZE, (byte*)&page, sizeof(page), src, len, dst, &olen, dst + len + AES_IV_SIZE, GCM_TAG_SIZE);
 	memset(src+len, 0, CODEC_RESERVED_SIZE);
-	if (rc){ memset(dst, 0, offset);rc = SQLITE_NOTADB; }		
-    else { rc=SQLITE_OK; }  	
-    CODEC_TRACE(("  decrypt %s: page=%i, size=%i", rc == 0 ? "OK" : "ERROR", page, size));
+	if (rc != 0 && page == 1){ memset(dst-offset, 0, offset); }//clear zMagicHeader
+	CODEC_TRACE(("  decrypt %s: page=%i, size=%i", rc == 0 ? "OK" : "ERROR", page, size));
 	return rc;
 }
 
@@ -937,6 +936,7 @@ int sqlcodec_rekey(sqlite3 *db, int nDb, char* zKey, int nKey)
 			sqlite3BtreeEnter(pDb->pBt);
 			for (i = 0; i < 3; i++)
 			{
+				//force clear attached database
 				pager_truncate(sqlite3BtreePager(pDb->pBt), 0);
 				sqlite3BtreeEnterAll(db);
 				sqlite3ResetOneSchema(db, nDb);
@@ -1187,8 +1187,8 @@ void sqlcodec_exportFunc(sqlite3_context *context, int argc, sqlite3_value **arg
 	sqlite3BtreeLeave(pTo);
 
 
-	//!!! this not work, returns error: table in the database is locked, try sqlite3BtreeEnter(pTo) block	
-    //rc = sqlcodec_clearall(db, toDb);
+	//!!! this not work, returns error: table in the database is locked, try sqlite3BtreeEnter
+	//rc = sqlcodec_clearall(db, toDb);
 	//if( rc!=SQLITE_OK )
 	//{
 	//	sqlite3SetString(&pzErrMsg, db, "cannot Export - error while cleaning the attached database");
