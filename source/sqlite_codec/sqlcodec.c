@@ -143,7 +143,7 @@ int sqlcodec_backup(sqlite3* db, char* zDbName, int bTo, char* fileName, char* z
 //void sqlcodec_rekey_function(sqlite3_context *context, int argc, sqlite3_value **argv);
 //void sqlcodec_attach_function(sqlite3_context *context, int argc, sqlite3_value **argv);
 //void sqlcodec_detach_function(sqlite3_context *context, int argc, sqlite3_value **argv);
-void sqlite3codec_register_user_functions(sqlite3* db);
+SQLITE_API int SQLITE_STDCALL sqlite3codec_register_user_functions(sqlite3* db);
 //int sqlcodec_exportFull(sqlite3* db, char* fromDb, char* toDb);
 //int sqlcodec_clearall(sqlite3* db, char* szDbName);
 //int sqlcodec_replayAllPages(Db* pDb);
