@@ -43,25 +43,19 @@
 * is used to decipher database file.
 * 
 * Attaching a file to 'main' database:
-*   ATTACH DATABASE 'dbfile' AS 'alias_name' KEY 'pass';   - attaching database file
+*   ATTACH DATABASE 'dbfile' AS 'dbname' KEY 'pass';       - attaching database file
 * examples:
 *   ATTACH DATABASE 'new_file.db' AS 'newdb';              - attaching unencrypted database 'newdb'
 *   ATTACH DATABASE 'new_file.db' AS 'newdb' KEY '';       - attaching unencrypted database 'newdb'
 *   ATTACH DATABASE 'new_file.db' AS 'newdb' KEY 'pass';   - attaching encrypted database, used passphrase
 *   ATTACH DATABASE 'new_file.db' AS 'newdb' KEY 'abc...z='; - attaching encrypted database, used base64 prekey
-* or
-*   SELECT attach('dbfile','alias_name','passphrase');
-* and
-*   DETACH DATABASE 'newdb';
-* or
-*   SELECT detach('newdb')
 *
-* Alternate can 
-*   SELECT key(x,y)
-*   SELECT rekey(x,y)
-*   SELECT attach(x,y,z)
-*   SELECT detach(x)
-*   SELECT export(x,y)
+* Alternative, via the function
+*   SELECT    key('dbname','passphrase')
+*   SELECT  rekey('dbname','passphrase')
+*   SELECT attach('new_file.db','newdb','passphrase');
+*   SELECT detach('newdb')
+*   SELECT export('fromdb','newdb') - export to attached db
 *---------------
 */
 
@@ -1059,23 +1053,28 @@ int sqlcodec_rekey(sqlite3 *db, int nDb, char* zKey, int nKey)
 
 /*
 * Backup database to/from disk file with encryption by zKey
-* if bTo = 1 - then db -> file with zKey
-* if bTo = 0 - then db <- file with zKey
+* if bTo = 1 - then db zDbName -> file with zKey
+* if bTo = 0 - then db zDbName <- file with zKey
 * if zKey is not null, then it used, otherwise backup without encryption
 */
 int sqlcodec_backup(sqlite3* db, char* zDbName, int bTo, char* fileName, char* zKey, int nKey)
 {
 	Db* pDb1, *pDb2;
 	int nDb1, nDb2, rc;
-	char* zSql = NULL;
+	char* pzErrMsg = NULL;
 
 	//CAST(zKey,nKey)
 	if (nKey <= 0) { zKey = NULL; nKey = 0; }
 	if (fileName == NULL)return SQLITE_ERROR;
 	if (bTo == 1)sqlite3OsDelete(db->pVfs, fileName, 1);
-	zSql = sqlite3_mprintf("ATTACH \"%w\" AS 'vacuum_0000' KEY \"%w\"", fileName, zKey);//use execSqlF	
-    rc = (zSql == NULL) ? SQLITE_NOMEM : sqlite3_exec(db, zSql, NULL, 0, NULL);
-	sqlite3_free(zSql);
+
+	//zSql = sqlite3_mprintf("ATTACH \"%w\" AS 'vacuum_0000' KEY \"%w\"", fileName, zKey);
+	//rc = (zSql == NULL) ? SQLITE_NOMEM : sqlite3_exec(db, zSql, NULL, 0, NULL);
+	//sqlite3_free(zSql);
+	rc = sqlcodec_execSqlF(db, &pzErrMsg,
+		"ATTACH \"%w\" AS 'vacuum_0000' KEY \"%w\"",
+		fileName, zKey
+	);
 	if (rc != SQLITE_OK) return rc;
 
 	nDb1 = sqlite3FindDbName(db, zDbName); if (nDb1 < 0)return SQLITE_ERROR;
@@ -1150,10 +1149,6 @@ void sqlcodec_export_function(sqlite3_context *context, int argc, sqlite3_value 
 	int rc = SQLITE_OK;     /* Return code from service routines */
 	Btree *pFrom;           /* The database being vacuumed */
 	Btree *pTo;             /* The temporary database we vacuum into */
-	int saved_flags;        /* Saved value of the db->flags */
-	int saved_nChange;      /* Saved value of db->nChange */
-	int saved_nTotalChange; /* Saved value of db->nTotalChange */
-	u8 saved_mTrace;		/* Saved db->mTrace */
 	char *pzErrMsg = NULL;
 	char *fromDb, *toDb;
 	int nFrom, nTo;
@@ -1184,110 +1179,27 @@ void sqlcodec_export_function(sqlite3_context *context, int argc, sqlite3_value 
 		sqlite3DbFree(db, pzErrMsg);
 		return;
 	}
+	
+	CODEC_TRACE(("start sqlcodec_exportFunc: fromDb=%s, toDb=%s", fromDb, toDb));
+
 	pFrom = db->aDb[nFrom].pBt;
 	pTo = db->aDb[nTo].pBt;
 
-	CODEC_TRACE(("start sqlcodec_exportFunc: fromDb=%s, toDb=%s", fromDb, toDb));
-    //use backup	
-    //force clear attached database
+	sqlite3_mutex_enter(db->mutex);
+	sqlite3BtreeEnter(pFrom);
 	sqlite3BtreeEnter(pTo);
-	pager_truncate(sqlite3BtreePager(pTo), 0);
-	sqlite3BtreeEnterAll(db);
-	sqlite3ResetOneSchema(db, nTo);
-	sqlite3BtreeLeaveAll(db);
+
+	rc = sqlcodec_exportFull(db, fromDb, toDb);//copy fromDb->toDb
+	if (rc == SQLITE_OK)rc = sqlcodec_replayAllPages(&db->aDb[nTo]);//test new db
+
 	sqlite3BtreeLeave(pTo);
+	sqlite3BtreeLeave(pFrom);
+	sqlite3_mutex_leave(db->mutex);
 
-
-	//!!! this not work, returns error: table in the database is locked, try sqlite3BtreeEnter
-	//rc = sqlcodec_clearall(db, toDb);
-	//if( rc!=SQLITE_OK )
-	//{
-	//	sqlite3SetString(&pzErrMsg, db, "cannot Export - error while cleaning the attached database");
-	//	sqlite3_result_error(context, pzErrMsg, -1);
-	//	sqlite3DbFree(db, pzErrMsg);
-	//	return;
-	//}
-
-	// Save the current value of the database flags so that it can be
-	// restored before returning. Then set the writable-schema flag, and
-	// disable CHECK and foreign key constraints.
-	saved_flags = db->flags;
-	saved_nChange = db->nChange;
-	saved_nTotalChange = db->nTotalChange;
-	saved_mTrace = db->mTrace;
-	db->flags |= (SQLITE_WriteSchema | SQLITE_IgnoreChecks
-		          | SQLITE_PreferBuiltin | SQLITE_Vacuum);
-	db->flags &= ~(SQLITE_ForeignKeys | SQLITE_ReverseOrder | SQLITE_CountRows);
-	db->mTrace = 0;
-
-	sqlite3BtreeSetCacheSize(pTo, db->aDb[nFrom].pSchema->cache_size);
-	sqlite3BtreeSetSpillSize(pTo, sqlite3BtreeSetSpillSize(pFrom,0));
-	sqlite3BtreeSetPagerFlags(pTo, PAGER_SYNCHRONOUS_OFF|PAGER_CACHESPILL);
-
-
-	// Query the schema of the main database. Create a mirror schema
-	// in the temporary database.
-	db->init.iDb = nTo; /* force new CREATE statements into toDb */
-	rc = sqlcodec_execSqlF(db, &pzErrMsg,
-		"SELECT sql FROM \"%w\".sqlite_master"
-		" WHERE type='table' AND name<>'sqlite_sequence'"
-		" AND coalesce(rootpage,1)>0",
-		fromDb
-	);
-	if( rc!=SQLITE_OK ) goto end_of_export;
-	rc = sqlcodec_execSqlF(db, &pzErrMsg,
-		"SELECT sql FROM \"%w\".sqlite_master"
-		" WHERE type='index' AND length(sql)>10",
-		fromDb
-	);
-	if( rc!=SQLITE_OK ) goto end_of_export;
-	db->init.iDb = 0;
-
-	// Loop through the tables in the main database. For each, do
-	// an "INSERT INTO vacuum_db.xxx SELECT * FROM main.xxx;" to copy
-	// the contents to the temporary database.
-	rc = sqlcodec_execSqlF(db, &pzErrMsg,
-		"SELECT 'INSERT INTO \"%w\".'||quote(name)"
-		"||' SELECT * FROM \"%w\".'||quote(name)"
-		"FROM \"%w\".sqlite_master "
-		"WHERE type='table' AND coalesce(rootpage,1)>0",
-		toDb, fromDb, toDb
-	);
-	assert( (db->flags & SQLITE_Vacuum)!=0 );
-	db->flags &= ~SQLITE_Vacuum;
-	if( rc!=SQLITE_OK ) goto end_of_export;
-
-	// Copy the triggers, views, and virtual tables from the main database
-	// over to the temporary database.  None of these objects has any
-	// associated storage, so all we have to do is copy their entries
-	// from the SQLITE_MASTER table.
-	rc = sqlcodec_execSqlF(db, &pzErrMsg,
-		"INSERT INTO \"%w\".sqlite_master"
-		" SELECT * FROM \"%w\".sqlite_master"
-		" WHERE type IN('view','trigger')"
-		" OR(type='table' AND rootpage=0)",
-		toDb, fromDb
-	);
-
-end_of_export:
-	db->init.iDb = 0;
-	db->flags = saved_flags;
-	db->nChange = saved_nChange;
-	db->nTotalChange = saved_nTotalChange;
-	db->mTrace = saved_mTrace;
-
-	if (rc)
-	{
-		if (pzErrMsg != NULL)
-		{
-			sqlite3_result_error(context, pzErrMsg, -1);
-			sqlite3DbFree(db, pzErrMsg);
-		}
-		else
-		{
-			sqlite3_result_error(context, sqlite3ErrStr(rc), -1);
-		}
-	}
+	if(rc == SQLITE_OK)
+		sqlite3_result_text(context, "\"NOTATABLE:@#^~\"", 16, NULL);
+	else
+		sqlite3_result_error(context, sqlite3ErrStr(rc), -1);
 }
 /*
 * Implementation of an "key" function that allows set new key to database
@@ -1335,7 +1247,9 @@ void sqlcodec_key_function(sqlite3_context *context, int argc, sqlite3_value **a
 	}
 
 	rc = sqlite3_key_v2(db, dbName, pKey, nKey);
-	if(rc != SQLITE_OK)
+	if(rc == SQLITE_OK)
+		sqlite3_result_text(context, "\"NOTATABLE:@#^~\"", 16, NULL);
+	else
 		sqlite3_result_error(context, sqlite3ErrStr(rc), -1);
 }
 /*
@@ -1384,7 +1298,9 @@ void sqlcodec_rekey_function(sqlite3_context *context, int argc, sqlite3_value *
 	}
 
 	rc = sqlite3_rekey_v2(db, dbName, pKey, nKey);
-	if(rc != SQLITE_OK)
+	if(rc == SQLITE_OK)
+		sqlite3_result_text(context, "\"NOTATABLE:@#^~\"", 16, NULL);
+	else
 		sqlite3_result_error(context, sqlite3ErrStr(rc), -1);
 }
 /*
@@ -1437,7 +1353,9 @@ void sqlcodec_attach_function(sqlite3_context *context, int argc, sqlite3_value 
 		dbFile, dbName, pKey
 	);
 
-	if(rc != SQLITE_OK)
+	if(rc == SQLITE_OK)
+		sqlite3_result_text(context, "\"NOTATABLE:@#^~\"", 16, NULL);
+	else
 		sqlite3_result_error(context, sqlite3ErrStr(rc), -1);
 }
 /*
@@ -1474,7 +1392,9 @@ void sqlcodec_detach_function(sqlite3_context *context, int argc, sqlite3_value 
 		dbName
 	);
 
-	if(rc != SQLITE_OK)
+	if(rc == SQLITE_OK)
+		sqlite3_result_text(context, "\"NOTATABLE:@#^~\"", 16, NULL);
+	else
 		sqlite3_result_error(context, sqlite3ErrStr(rc), -1);
 }
 
