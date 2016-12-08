@@ -1119,6 +1119,8 @@ int sqlcodec_backup(sqlite3* db, char* zDbName, int bTo, char* fileName, char* z
 
 
 
+//define on sucess return value for functions
+#define RET_VAL ("\"NOTATABLE:@#^~\"")
 
 /*
 * Implementation of an "export" function that allows a caller
@@ -1174,7 +1176,7 @@ void sqlcodec_export_function(sqlite3_context *context, int argc, sqlite3_value 
 	nTo = sqlite3FindDbName(db, toDb);
 
 	if (nFrom<0 || nTo<0) {
-		sqlite3SetString(&pzErrMsg, db, "cannot Export - attached database error");
+		sqlite3SetString(&pzErrMsg, db, "cannot export - attached database error");
 		sqlite3_result_error(context, pzErrMsg, -1);
 		sqlite3DbFree(db, pzErrMsg);
 		return;
@@ -1197,7 +1199,7 @@ void sqlcodec_export_function(sqlite3_context *context, int argc, sqlite3_value 
 	sqlite3_mutex_leave(db->mutex);
 
 	if(rc == SQLITE_OK)
-		sqlite3_result_text(context, "\"NOTATABLE:@#^~\"", 16, NULL);
+		sqlite3_result_text(context, RET_VAL, 16, NULL);
 	else
 		sqlite3_result_error(context, sqlite3ErrStr(rc), -1);
 }
@@ -1248,7 +1250,7 @@ void sqlcodec_key_function(sqlite3_context *context, int argc, sqlite3_value **a
 
 	rc = sqlite3_key_v2(db, dbName, pKey, nKey);
 	if(rc == SQLITE_OK)
-		sqlite3_result_text(context, "\"NOTATABLE:@#^~\"", 16, NULL);
+		sqlite3_result_text(context, RET_VAL, 16, NULL);
 	else
 		sqlite3_result_error(context, sqlite3ErrStr(rc), -1);
 }
@@ -1299,7 +1301,7 @@ void sqlcodec_rekey_function(sqlite3_context *context, int argc, sqlite3_value *
 
 	rc = sqlite3_rekey_v2(db, dbName, pKey, nKey);
 	if(rc == SQLITE_OK)
-		sqlite3_result_text(context, "\"NOTATABLE:@#^~\"", 16, NULL);
+		sqlite3_result_text(context, RET_VAL, 16, NULL);
 	else
 		sqlite3_result_error(context, sqlite3ErrStr(rc), -1);
 }
@@ -1354,7 +1356,7 @@ void sqlcodec_attach_function(sqlite3_context *context, int argc, sqlite3_value 
 	);
 
 	if(rc == SQLITE_OK)
-		sqlite3_result_text(context, "\"NOTATABLE:@#^~\"", 16, NULL);
+		sqlite3_result_text(context, RET_VAL, 16, NULL);
 	else
 		sqlite3_result_error(context, sqlite3ErrStr(rc), -1);
 }
@@ -1393,7 +1395,7 @@ void sqlcodec_detach_function(sqlite3_context *context, int argc, sqlite3_value 
 	);
 
 	if(rc == SQLITE_OK)
-		sqlite3_result_text(context, "\"NOTATABLE:@#^~\"", 16, NULL);
+		sqlite3_result_text(context, RET_VAL, 16, NULL);
 	else
 		sqlite3_result_error(context, sqlite3ErrStr(rc), -1);
 }
