@@ -56,6 +56,8 @@
 *   SELECT attach('new_file.db','newdb','passphrase');
 *   SELECT detach('newdb')
 *   SELECT export('fromdb','newdb') - export to attached db
+*
+*  To register sqlite functions after open database call sqlite3codec_register_user_functions.
 *---------------
 */
 
@@ -136,7 +138,12 @@ int sqlcodec_copy_ctx(sqlCodecCTX** pctx_dest, sqlCodecCTX* ctx_src);
 int RNG_GenerateBlock(byte* dst, int len);
 int sqlcodec_rekey(sqlite3 *db, int nDb, char* zKey, int nKey);
 int sqlcodec_backup(sqlite3* db, char* zDbName, int bTo, char* fileName, char* zKey, int nKey);
-//void sqlcodec_exportFunc(sqlite3_context *context, int argc, sqlite3_value **argv);
+//void sqlcodec_export_function(sqlite3_context *context, int argc, sqlite3_value **argv);
+//void sqlcodec_key_function(sqlite3_context *context, int argc, sqlite3_value **argv);
+//void sqlcodec_rekey_function(sqlite3_context *context, int argc, sqlite3_value **argv);
+//void sqlcodec_attach_function(sqlite3_context *context, int argc, sqlite3_value **argv);
+//void sqlcodec_detach_function(sqlite3_context *context, int argc, sqlite3_value **argv);
+void sqlite3codec_register_user_functions(sqlite3* db);
 //int sqlcodec_exportFull(sqlite3* db, char* fromDb, char* toDb);
 //int sqlcodec_clearall(sqlite3* db, char* szDbName);
 //int sqlcodec_replayAllPages(Db* pDb);
@@ -1119,7 +1126,7 @@ int sqlcodec_backup(sqlite3* db, char* zDbName, int bTo, char* fileName, char* z
 
 
 
-//define on sucess return value for functions
+//define on success return value for functions
 #define RET_VAL ("\"NOTATABLE:@#^~\"")
 
 /*
