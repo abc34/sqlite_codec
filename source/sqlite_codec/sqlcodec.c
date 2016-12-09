@@ -51,11 +51,11 @@
 *   ATTACH DATABASE 'new_file.db' AS 'newdb' KEY 'abc...z='; - attaching encrypted database, used base64 prekey
 *
 * Alternative, via the function
-*   SELECT    key('dbname','passphrase')
-*   SELECT  rekey('dbname','passphrase')
+*   SELECT    key('dbname','passphrase');
+*   SELECT  rekey('dbname','passphrase');
 *   SELECT attach('new_file.db','newdb','passphrase');
-*   SELECT detach('newdb')
-*   SELECT export('fromdb','newdb') - export to attached db
+*   SELECT detach('newdb');
+*   SELECT export('fromdb','newdb'); - export to attached db
 *
 *  To register sqlite functions after open database call sqlite3codec_register_user_functions.
 *---------------
