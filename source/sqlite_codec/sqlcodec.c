@@ -1424,8 +1424,8 @@ SQLITE_API int SQLITE_STDCALL sqlite3codec_register_user_functions(sqlite3 *db)
 		rc |= sqlite3_create_function(db, "export", 2, SQLITE_UTF8, NULL, &sqlcodec_export_function, NULL, NULL);
 		rc |= sqlite3_create_function(db, "key",    2, SQLITE_UTF8, NULL, &sqlcodec_key_function, NULL, NULL);
 		rc |= sqlite3_create_function(db, "rekey",  2, SQLITE_UTF8, NULL, &sqlcodec_rekey_function, NULL, NULL);
-		rc |= sqlite3_create_function(db, "attach",  3, SQLITE_UTF8, NULL, &sqlcodec_attach_function, NULL, NULL);
-		rc |= sqlite3_create_function(db, "detach",  1, SQLITE_UTF8, NULL, &sqlcodec_detach_function, NULL, NULL);
+		rc |= sqlite3_create_function(db, "attach", 3, SQLITE_UTF8, NULL, &sqlcodec_attach_function, NULL, NULL);
+		rc |= sqlite3_create_function(db, "detach", 1, SQLITE_UTF8, NULL, &sqlcodec_detach_function, NULL, NULL);
 	}
 	return rc;
 }
