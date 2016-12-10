@@ -55,9 +55,9 @@
 *   SELECT  rekey('dbname','passphrase');
 *   SELECT attach('new_file.db','newdb','passphrase');
 *   SELECT detach('newdb');
-*   SELECT export('fromdb','newdb'); - export to attached db
+*   SELECT export('fromdb','newdb'); <- export to attached db
 *
-*  To register sqlite functions after open database call sqlite3codec_register_user_functions.
+* To register SQLite functions, after opening a database call 'sqlite3codec_register_user_functions'.
 *---------------
 */
 
@@ -138,15 +138,16 @@ int sqlcodec_copy_ctx(sqlCodecCTX** pctx_dest, sqlCodecCTX* ctx_src);
 int RNG_GenerateBlock(byte* dst, int len);
 int sqlcodec_rekey(sqlite3 *db, int nDb, char* zKey, int nKey);
 int sqlcodec_backup(sqlite3* db, char* zDbName, int bTo, char* fileName, char* zKey, int nKey);
+//int sqlcodec_exportFull(sqlite3* db, char* fromDb, char* toDb);
+//int sqlcodec_clearall(sqlite3* db, char* szDbName);
+//int sqlcodec_replayAllPages(Db* pDb);
+
 //void sqlcodec_export_function(sqlite3_context *context, int argc, sqlite3_value **argv);
 //void sqlcodec_key_function(sqlite3_context *context, int argc, sqlite3_value **argv);
 //void sqlcodec_rekey_function(sqlite3_context *context, int argc, sqlite3_value **argv);
 //void sqlcodec_attach_function(sqlite3_context *context, int argc, sqlite3_value **argv);
 //void sqlcodec_detach_function(sqlite3_context *context, int argc, sqlite3_value **argv);
-SQLITE_API int SQLITE_STDCALL sqlite3codec_register_user_functions(sqlite3* db);
-//int sqlcodec_exportFull(sqlite3* db, char* fromDb, char* toDb);
-//int sqlcodec_clearall(sqlite3* db, char* szDbName);
-//int sqlcodec_replayAllPages(Db* pDb);
+SQLITE_API int SQLITE_STDCALL sqlite3codec_register_user_functions(sqlite3 *db);
 
 void* sqlite3Codec(void *pCodecArg, void *data, Pgno pgno, int mode);
 void sqlite3FreeCodecArg(void *pCodecArg);
@@ -632,7 +633,7 @@ int Base64Dec(const unsigned char* s,int slen,unsigned char* out,int outlen)
 
 /*
 * Encryption function
-* On sucess returns 0, otherwise non-zero
+* On success returns 0, otherwise non-zero
 */
 int sqlcodec_encrypt(unsigned int page, sqlCodecCTX *ctx, byte *src, byte* dst, int size)
 {
@@ -648,7 +649,7 @@ int sqlcodec_encrypt(unsigned int page, sqlCodecCTX *ctx, byte *src, byte* dst, 
 }
 /*
 * Decryption function
-* On sucess returns 0, otherwise non-zero
+* On success returns 0, otherwise non-zero
 */
 int sqlcodec_decrypt(unsigned int page, sqlCodecCTX *ctx, byte *src, byte* dst, int size)
 {
@@ -1126,7 +1127,7 @@ int sqlcodec_backup(sqlite3* db, char* zDbName, int bTo, char* fileName, char* z
 
 
 
-//define on success return value for functions
+//define on sucess return value for functions
 #define RET_VAL ("\"NOTATABLE:@#^~\"")
 
 /*
@@ -1147,9 +1148,9 @@ int sqlcodec_backup(sqlite3* db, char* zDbName, int bTo, char* fileName, char* z
 *
 * sqlite3_create_function(db, "export", 1, SQLITE_UTF8, NULL, &sqlcodec_exportFunc, NULL, NULL);
 * and used as:
-* ATTACH 'fileDb.sqlite' AS 'newDb' KEY 'password'
+* ATTACH 'fileDb.sqlite' AS 'newDb' KEY 'password';
 * or
-* ATTACH 'fileDb.sqlite' AS 'newDb'
+* ATTACH 'fileDb.sqlite' AS 'newDb';
 * then
 * SELECT export('fromDb','newDb');
 */
