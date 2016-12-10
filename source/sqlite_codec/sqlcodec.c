@@ -1127,7 +1127,7 @@ int sqlcodec_backup(sqlite3* db, char* zDbName, int bTo, char* fileName, char* z
 
 
 
-//define on sucess return value for functions
+//define on sucсess return value for functions
 #define RET_VAL ("\"NOTATABLE:@#^~\"")
 
 /*
